@@ -1,0 +1,79 @@
+{
+  "$schema": "https://schema.tauri.app/v2/tauri.config.json",
+  "productName": "STEP It Out",
+  "version": "0.0.1",
+  "identifier": "com.stepitout.sequencer",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "STEP It Out",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "nsis": {
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": false
+      }
+    },
+    "longDescription": "Step sequencer for animating light pass layers in video compositing",
+    "shortDescription": "Light pass step sequencer",
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "resources": [],
+    "externalBin": [],
+    "copyright": "",
+    "category": "Utility"
+  },
+  "plugins": {
+    "fs": {
+      "requireLiteralLeadingDot": false
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/BoxcatStudio/StepItOut/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4ODA3QkZCODhDQzNBMzMKUldRek9zeUkrM3VBS0NrT0ZMSU41Q2tDZ2ZkWSt6a3AyenY0T245TzdWM0NLU1ltMnAxRjJFMVIK"
+    }
+  }
+}

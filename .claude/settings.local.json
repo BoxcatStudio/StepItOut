@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"#\\\\[tauri::command\\\\]\" \"C:/Users/Lexy/Documents/Software Dev/Step it out/src-tauri/src/commands\"/*.rs)",
+      "Bash(grep -r \"open_export_dialog\\\\|write_export_file\" 'C:/Users/Lexy/Documents/Software Dev/Step it out' --include=*.ts --include=*.tsx --include=*.rs)",
+      "Bash(grep -n \"^\\\\s*//.*\" \"C:/Users/Lexy/Documents/Software Dev/Step it out/src/App.tsx\")",
+      "Bash(npx tsc:*)",
+      "Bash(cargo check:*)"
+    ]
+  }
+}
