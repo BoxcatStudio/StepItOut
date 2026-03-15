@@ -5,7 +5,17 @@
       "Bash(grep -r \"open_export_dialog\\\\|write_export_file\" 'C:/Users/Lexy/Documents/Software Dev/Step it out' --include=*.ts --include=*.tsx --include=*.rs)",
       "Bash(grep -n \"^\\\\s*//.*\" \"C:/Users/Lexy/Documents/Software Dev/Step it out/src/App.tsx\")",
       "Bash(npx tsc:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(find 'C:/Users/Lexy/Documents/Software Dev/Step it out/src' -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "WebSearch",
+      "Bash(wc -l /c/Users/Lexy/Documents/\"Software Dev\"/\"Step it out\"/src/engine/*.ts)",
+      "Bash(grep -rn \"^[[:space:]]*\\\\/\\\\/.*[a-zA-Z0-9_][a-zA-Z0-9_\\(\\){}=\\\\[\\\\];,.]\" /c/Users/Lexy/Documents/\"Software Dev\"/\"Step it out\"/src --include=\"*.ts\" --include=\"*.tsx\")",
+      "Bash(npx @tauri-apps/cli icon --help)",
+      "Bash(npm ls:*)",
+      "Bash(npx @tauri-apps/cli icon src-tauri/icons/icon.svg -o src-tauri/icons)",
+      "Bash(cargo clean:*)",
+      "Bash(xargs wc:*)",
+      "Bash(npx tauri:*)"
     ]
   }
 }

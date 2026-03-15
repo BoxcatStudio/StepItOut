@@ -202,6 +202,51 @@ export function generateGridPatterns(
       break;
     }
 
+    case "shapes": {
+      const { shape, size, density } = config.config;
+      const shapeSize = Math.max(2, Math.floor((size / 100) * Math.min(numLayers, maxSteps / 2)));
+      const spacing = Math.max(shapeSize + 1, Math.floor((1 - density / 100) * maxSteps / 2) + shapeSize);
+
+      const templates: Record<string, (x: number, y: number, r: number) => boolean> = {
+        circle: (x, y, r) => x * x + y * y <= r * r,
+        triangle: (x, y, r) => y >= -r && y <= r && Math.abs(x) <= (r - y) * 0.6,
+        square: (x, y, r) => Math.abs(x) <= r * 0.8 && Math.abs(y) <= r * 0.8,
+        star: (x, y, r) => {
+          const angle = Math.atan2(y, x);
+          const dist = Math.sqrt(x * x + y * y);
+          const spikes = 5;
+          const innerR = r * 0.4;
+          const outerR = r;
+          const a = ((angle + Math.PI * 2) % (Math.PI * 2 / spikes)) / (Math.PI * 2 / spikes);
+          const targetR = a < 0.5 ? innerR + (outerR - innerR) * (a * 2) : outerR - (outerR - innerR) * ((a - 0.5) * 2);
+          return dist <= targetR;
+        },
+        smiley: (x, y, r) => {
+          const d = Math.sqrt(x * x + y * y);
+          if (d > r && d <= r * 1.1) return true;
+          if (Math.sqrt((x - r * 0.35) ** 2 + (y + r * 0.25) ** 2) < r * 0.15) return true;
+          if (Math.sqrt((x + r * 0.35) ** 2 + (y + r * 0.25) ** 2) < r * 0.15) return true;
+          if (y > r * 0.1 && y < r * 0.5 && Math.abs(x) < r * 0.5 && Math.abs(Math.sqrt(x * x + (y - r * 0.1) ** 2) - r * 0.4) < r * 0.12) return true;
+          return false;
+        },
+      };
+
+      const testFn = templates[shape] || templates.circle;
+      const radius = shapeSize / 2;
+
+      for (let cx = Math.floor(shapeSize / 2); cx < maxSteps; cx += spacing) {
+        const cy = Math.floor(numLayers / 2);
+        for (let dy = -Math.ceil(radius); dy <= Math.ceil(radius); dy++) {
+          for (let dx = -Math.ceil(radius); dx <= Math.ceil(radius); dx++) {
+            if (testFn(dx, dy, radius)) {
+              setStep(cy + dy, cx + dx, 1);
+            }
+          }
+        }
+      }
+      break;
+    }
+
     case "ramp": {
       const { amount, direction } = config.config;
       // A cleaner, simpler grid distribution

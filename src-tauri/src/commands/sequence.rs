@@ -37,6 +37,8 @@ pub struct StepSeqFile {
     pub sequence_bank: Vec<Option<StepSeqPatternBank>>,
     #[serde(default)]
     pub active_bank_slot: usize,
+    #[serde(default)]
+    pub project_name: String,
 }
 
 #[tauri::command]

@@ -1,10 +1,11 @@
 import { useSequencerStore } from "../store/useSequencerStore";
 import { LayerRow, Knob } from "./LayerRow";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getTotalFrames } from "../engine/frameMath";
 
 const GRID = {
-  ORIGIN_X: 360,       // Left sidebar width
+  ORIGIN_X: 320,       // Left sidebar width
   ORIGIN_Y: 56,        // Timeline header height
   ROW_HEIGHT: 56,      // Track row height
   CELL_GAP: 4,         // Space between cells
@@ -28,6 +29,7 @@ export function SequencerGrid() {
   const [viewportWidth, setViewportWidth] = useState(1000); // Fallback
   const isDragging = useRef(false);
   const dragValue = useRef<number>(0);
+  const [pendingClear, setPendingClear] = useState<"all" | "patterns" | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -192,20 +194,16 @@ export function SequencerGrid() {
           <div className="flex sticky top-0 z-40 bg-[#151515] border-b border-[#000]" style={{ height: GRID.ROW_HEIGHT }}>
              <div className="w-[360px] shrink-0 sticky left-0 z-50 bg-[#151515] border-r border-[#000] flex items-center justify-between px-2" style={{ width: GRID.ORIGIN_X }}>
                 <div className="w-[120px] shrink-0 flex items-center justify-start gap-2 pl-2">
-                   <button 
-                      onClick={() => {
-                        if (window.confirm("Are you sure you want to clear the entire composition? This will remove all channels and reset the sequences.")) {
-                          clearAll(true);
-                        }
-                      }}
+                   <button
+                      onClick={() => setPendingClear("all")}
                        className="w-5 h-5 flex items-center justify-center shrink-0 text-[10px] text-white/50 bg-[#222] border border-red-500/20 hover:bg-red-500/80 hover:text-white rounded shadow-inner font-bold transition-colors"
                       title="Clear Composition"
                    >
                      ✕
                    </button>
                    <div className="w-[80px] flex items-center justify-center shrink-0">
-                     <button 
-                        onClick={() => clearAll(false)}
+                     <button
+                        onClick={() => setPendingClear("patterns")}
                         className="text-[10px] w-[80px] text-red-500/80 font-bold tracking-wider hover:text-red-400 border border-red-500/20 rounded py-1 shadow-inner bg-[#111]"
                      >
                        CLEAR
@@ -221,15 +219,14 @@ export function SequencerGrid() {
                 <div className="flex-1" />
 
                 {/* Knobs Group */}
-                <div className="flex items-center gap-4 pr-4">
-                  {/* Attack Knob */}
-                  <div className="w-[36px] flex items-center justify-center">
+                <div className="flex items-center gap-4 pr-2">
+                  <div className="flex flex-col items-center gap-0.5">
                     <Knob label="ATK" value={sequence.lights[0]?.attack || 2} max={60} onChange={(v) => setGlobalControl("attack", v)} />
+                    <span className="text-[7px] text-white/25 uppercase tracking-wider font-bold">Attack</span>
                   </div>
-
-                  {/* Decay Knob */}
-                  <div className="w-[36px] flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-0.5">
                     <Knob label="DEC" value={sequence.lights[0]?.decay || 6} max={60} onChange={(v) => setGlobalControl("decay", v)} />
+                    <span className="text-[7px] text-white/25 uppercase tracking-wider font-bold">Decay</span>
                   </div>
                 </div>
              </div>
@@ -364,6 +361,40 @@ export function SequencerGrid() {
 
         </div>
       </div>
+
+      {/* Clear Confirmation Modal — portaled to body to escape overflow clipping */}
+      {pendingClear && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70" onClick={() => setPendingClear(null)}>
+          <div className="bg-[#1a1a1a] border border-red-500/30 rounded-lg shadow-2xl w-[340px] p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="text-white/90 text-[12px] font-bold uppercase tracking-widest mb-2">
+              {pendingClear === "all" ? "Remove All Channels?" : "Clear All Patterns?"}
+            </h3>
+            <p className="text-white/40 text-[10px] mb-4">
+              {pendingClear === "all"
+                ? "This will remove all channels and reset the sequences. This cannot be undone."
+                : "This will zero out every channel's step data. Channels will remain."}
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setPendingClear(null)}
+                className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-white/80 bg-black/40 hover:bg-black/80 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  clearAll(pendingClear === "all");
+                  setPendingClear(null);
+                }}
+                className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white bg-red-600 hover:bg-red-500 rounded transition-colors"
+              >
+                {pendingClear === "all" ? "Remove All" : "Clear Patterns"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

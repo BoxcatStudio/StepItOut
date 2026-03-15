@@ -8,11 +8,12 @@ interface LayerRowProps {
   light: LightLayer;
   isSelected: boolean;
   rowHeight?: number;
+  onPreview?: (light: LightLayer) => void;
 }
 
 const ROW_HEIGHT = 56; // Matched to SequencerGrid.tsx
 
-export function Knob({ label, value, max, onChange }: { label: string, value: number, max: number, onChange: (v: number, e: any) => void }) {
+export function Knob({ label: _label, value, max, onChange }: { label: string, value: number, max: number, onChange: (v: number, e: any) => void }) {
   const percentage = value / max;
   
   // SVG Ring calculations
@@ -54,7 +55,6 @@ export function Knob({ label, value, max, onChange }: { label: string, value: nu
     el.addEventListener('pointerup', onUp as EventListener);
   };
 
-  const shortLabel = label.charAt(0).toUpperCase();
 
   return (
     <div className="flex flex-col items-center justify-center group cursor-ns-resize" 
@@ -106,8 +106,7 @@ export function Knob({ label, value, max, onChange }: { label: string, value: nu
           <div className="absolute top-[3px] w-[3px] h-[6px] bg-[#e89f41] rounded-full shadow-[0_0_3px_#e89f41]" />
         </div>
 
-        {/* Center Label (A/D) */}
-        <span className="text-[10px] text-white/80 font-bold leading-none pointer-events-none z-10">{shortLabel}</span>
+        {/* Center Label — hidden by default, opt-in with showLabel */}
       </div>
     </div>
   );
@@ -166,7 +165,10 @@ export function LayerRow(props: LayerRowProps) {
             ✕
           </button>
 
-          <div className="relative shrink-0 rounded overflow-hidden shadow-[0_2px_4px_rgba(0,0,0,0.5)] bg-black w-[80px] h-[44px]">
+          <div
+            className="relative shrink-0 rounded overflow-hidden shadow-[0_2px_4px_rgba(0,0,0,0.5)] bg-black w-[80px] h-[44px] cursor-pointer hover:ring-1 hover:ring-[#e89f41]/40 transition-all"
+            onClick={(e) => { e.stopPropagation(); window.__showImagePreview?.(light.filePath, light.name); }}
+          >
              <LayerThumbnail filePath={light.filePath} size={44} />
           </div>
         </div>
@@ -178,7 +180,7 @@ export function LayerRow(props: LayerRowProps) {
         <div className="flex-1" />
 
         {/* Knobs Group */}
-        <div className="flex items-center gap-4 pr-4">
+        <div className="flex items-center gap-4 pr-2">
            {/* Attack Knob */}
            <div className="w-[36px] flex items-center justify-center">
               <Knob label="Attack" value={light.attack} max={60} onChange={(v, e) => e.shiftKey ? setGlobalControl("attack", v) : updateLight(light.id, { attack: v })} />

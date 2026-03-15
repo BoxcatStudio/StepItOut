@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { initStorePersistence, useSequencerStore } from "./store/useSequencerStore";
 import { ExportProgressModal } from "./components/ExportProgress";
 import { UpdateChecker } from "./components/UpdateChecker";
+import { ImagePreviewModal } from "./components/ImagePreviewModal";
+import { TitleBar } from "./components/TitleBar";
 import type { ExportProgress } from "./engine/exporter";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -15,6 +17,7 @@ function getNameFromPath(path: string): string {
 
 function App() {
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const [previewLight, setPreviewLight] = useState<{ filePath: string; name: string } | null>(null);
   const { sequence } = useSequencerStore();
 
   useKeyboardShortcuts();
@@ -22,10 +25,12 @@ function App() {
   useEffect(() => {
     initStorePersistence();
     window.__setExportProgress = setExportProgress;
+    window.__showImagePreview = (filePath: string, name: string) => setPreviewLight({ filePath, name });
   }, []);
 
   return (
     <div className="h-screen w-screen bg-[#111] text-white flex flex-col overflow-hidden font-sans">
+      <TitleBar />
       <TopBar />
       {sequence.lights.length > 0 ? (
         <>
@@ -38,14 +43,14 @@ function App() {
         </>
       ) : (
         <div className="flex-1 flex items-center justify-center relative">
-          <button 
+          <button
             onClick={async () => {
               try {
                 const paths = await invoke<string[]>("open_files_dialog");
                 if (paths.length > 0) {
-                  useSequencerStore.getState().addLights(paths.map((p) => ({ 
-                    name: getNameFromPath(p), 
-                    filePath: p 
+                  useSequencerStore.getState().addLights(paths.map((p) => ({
+                    name: getNameFromPath(p),
+                    filePath: p
                   })));
                 }
               } catch (e) {
@@ -58,28 +63,33 @@ function App() {
           </button>
         </div>
       )}
-      
+
       {/* Modals and Overlays */}
       <ExportProgressModal
         progress={exportProgress}
         onClose={() => setExportProgress(null)}
       />
+      {previewLight && (
+        <ImagePreviewModal
+          filePath={previewLight.filePath}
+          name={previewLight.name}
+          onClose={() => setPreviewLight(null)}
+        />
+      )}
       <UpdateChecker />
     </div>
   );
 }
 
-// Attach a global way to dispatch export progress events without plumbing it through all props
-// We could also put this in Zustand but since it's transient UI state, a global event works well.
 declare global {
   interface Window {
     __setExportProgress: (p: ExportProgress | null) => void;
     __cancelExport: () => void;
+    __showImagePreview: (filePath: string, name: string) => void;
   }
 }
-window.__setExportProgress = () => {
-  // We'll hook this up in the App component to the state setter
-};
+window.__setExportProgress = () => {};
 window.__cancelExport = () => {};
+window.__showImagePreview = () => {};
 
 export default App;

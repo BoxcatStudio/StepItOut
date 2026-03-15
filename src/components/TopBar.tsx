@@ -1,6 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useSequencerStore } from "../store/useSequencerStore";
+import { useSequencerStore, hasNonZeroPatterns } from "../store/useSequencerStore";
+import { InfoModal } from "./InfoModal";
+import { ExportModal, type ExportFormat } from "./ExportModal";
 import { getTotalFrames } from "../engine/frameMath";
 import { startPlayback, stopPlayback } from "../engine/playback";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -26,9 +28,12 @@ export function TopBar() {
   const setCurrentFrame = useSequencerStore(s => s.setCurrentFrame);
   const setFps = useSequencerStore(s => s.setFps);
   const setDurationSeconds = useSequencerStore(s => s.setDurationSeconds);
-  const debugPopulateLayers = useSequencerStore(s => s.debugPopulateLayers);
   const sequenceBank = useSequencerStore(s => s.sequenceBank);
   const activeBankSlot = useSequencerStore(s => s.activeBankSlot);
+  const projectName = useSequencerStore(s => s.projectName);
+  const setProjectName = useSequencerStore(s => s.setProjectName);
+  const [showInfo, setShowInfo] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   const totalFrames = getTotalFrames(sequence.durationSeconds, sequence.fps);
 
@@ -76,6 +81,7 @@ export function TopBar() {
           }>;
           sequence_bank?: Array<any | null>;
           active_bank_slot?: number;
+          project_name?: string;
         }>("load_sequence", { path });
 
         const mappedBank = data.sequence_bank ? data.sequence_bank.map(bank => {
@@ -114,7 +120,8 @@ export function TopBar() {
             })),
           },
           bank: mappedBank,
-          activeSlot: data.active_bank_slot
+          activeSlot: data.active_bank_slot,
+          projectName: data.project_name,
         });
       }
     } catch (e) {
@@ -133,14 +140,18 @@ export function TopBar() {
         // Force the active sequence into the sequenceBank payload to guarantee the 
         // current visual state is exactly what gets written to disk.
         const exportBank = [...sequenceBank];
-        const currentLayers: Record<string, any> = {};
-        sequence.lights.forEach(l => {
-          currentLayers[l.id] = { pattern: [...l.pattern], division: l.division, attack: l.attack, decay: l.decay };
-        });
-        exportBank[activeBankSlot] = {
-          durationSeconds: sequence.durationSeconds,
-          layers: currentLayers,
-        };
+        if (hasNonZeroPatterns(sequence.lights)) {
+          const currentLayers: Record<string, any> = {};
+          sequence.lights.forEach(l => {
+            currentLayers[l.id] = { pattern: [...l.pattern], division: l.division, attack: l.attack, decay: l.decay };
+          });
+          exportBank[activeBankSlot] = {
+            durationSeconds: sequence.durationSeconds,
+            layers: currentLayers,
+          };
+        } else {
+          exportBank[activeBankSlot] = null;
+        }
 
         const payloadSequenceBank = exportBank.map(bank => {
           if (!bank) return null;
@@ -148,7 +159,7 @@ export function TopBar() {
           Object.entries(bank.layers).forEach(([layerId, l]) => {
             layersObj[layerId] = {
                pattern: l.pattern,
-               division: String(l.division), // serialized as JSON Value downstream
+               division: String(l.division),
                attack: l.attack,
                decay: l.decay
             };
@@ -175,6 +186,7 @@ export function TopBar() {
           })),
           sequence_bank: payloadSequenceBank,
           active_bank_slot: activeBankSlot,
+          project_name: projectName,
         };
         await invoke("save_sequence", { path, data });
       }
@@ -183,146 +195,126 @@ export function TopBar() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = () => {
+    if (sequence.lights.length === 0) return;
+    setShowExport(true);
+  };
+
+  const doExport = async (format: ExportFormat, _selectedSlots: number[]) => {
+    setShowExport(false);
     try {
-      if (sequence.lights.length === 0) return;
+      if (format === "mp4") {
+        const ext = "mp4";
+        const path = await save({
+          filters: [{ name: "MP4 Video", extensions: [ext] }],
+          defaultPath: `${projectName || "sequence"}_export.${ext}`
+        });
+        if (!path) return;
 
-      const path = await save({
-        filters: [
-          { name: "MP4 Video", extensions: ["mp4"] },
-          { name: "STEP XML", extensions: ["xml"] }
-        ],
-        defaultPath: "sequence_export.mp4"
-      });
-      
-      if (path) {
-        if (path.toLowerCase().endsWith(".mp4")) {
-            let width = 1920;
-            let height = 1080;
-
-            const firstPath = sequence.lights[0].filePath;
-            try {
-               const img = new Image();
-               await new Promise<void>((resolve, reject) => {
-                  img.onload = () => {
-                   if (img.width && img.height) {
-                       width = img.width;
-                       height = img.height;
-                       
-                       const MAX_MP4_DIMENSION = 3840;
-                       if (width > MAX_MP4_DIMENSION || height > MAX_MP4_DIMENSION) {
-                           const scale = Math.min(MAX_MP4_DIMENSION / width, MAX_MP4_DIMENSION / height);
-                           width = Math.round(width * scale);
-                           height = Math.round(height * scale);
-                       }
-
-                       if (width % 2 !== 0) width -= 1;
-                       if (height % 2 !== 0) height -= 1;
-                    }
-                    resolve();
-                  };
-                  img.onerror = reject;
-                  
-                  import("@tauri-apps/api/core").then(({ convertFileSrc, isTauri }) => {
-                    if (isTauri()) {
-                      try { img.src = convertFileSrc(firstPath); } catch { img.src = firstPath; }
-                    } else { img.src = firstPath; }
-                  }).catch(() => { img.src = firstPath; });
-               });
-            } catch (e) {
-               console.warn("Could not determine actual resolution, using 1080p fallback");
-            }
-
-            const controller = new AbortController();
-            window.__cancelExport = () => controller.abort();
-
-            import("../engine/exporter").then(async ({ exportToMp4 }) => {
-                const mp4Data = await exportToMp4({
-                  sequence,
-                  resolution: { width, height },
-                  signal: controller.signal,
-                  onProgress: (p) => {
-                     if (window.__setExportProgress) {
-                        window.__setExportProgress(p);
-                     }
-                  }
-                });
-
-                const { writeFile } = await import("@tauri-apps/plugin-fs");
-                await writeFile(path, mp4Data);
-                
-                if (window.__setExportProgress) {
-                    window.__setExportProgress({ phase: "done", progress: 1, message: `Saved to ${path}` });
+        let width = 1920;
+        let height = 1080;
+        const firstPath = sequence.lights[0].filePath;
+        try {
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              if (img.width && img.height) {
+                width = img.width;
+                height = img.height;
+                const MAX = 3840;
+                if (width > MAX || height > MAX) {
+                  const scale = Math.min(MAX / width, MAX / height);
+                  width = Math.round(width * scale);
+                  height = Math.round(height * scale);
                 }
-            }).catch(e => {
-                console.error("Export failed during rendering/encoding:", e);
-                if (String(e).includes("aborted")) {
-                    if (window.__setExportProgress) window.__setExportProgress(null);
-                    return;
-                }
-                if (window.__setExportProgress) {
-                    window.__setExportProgress({ phase: "error", progress: 0, message: String(e) });
-                }
-            });
-        } else if (path.toLowerCase().endsWith(".xml")) {
-            // Build bank payload with current active state merged in
-            const exportBank = [...sequenceBank];
-            const currentLayers: Record<string, any> = {};
-            sequence.lights.forEach(l => {
-              currentLayers[l.id] = { pattern: [...l.pattern], division: l.division, attack: l.attack, decay: l.decay };
-            });
-            exportBank[activeBankSlot] = {
-              durationSeconds: sequence.durationSeconds,
-              layers: currentLayers,
-            };
-
-            const payloadSequenceBank = exportBank.map(bank => {
-              if (!bank) return null;
-              const layersObj: Record<string, any> = {};
-              Object.entries(bank.layers).forEach(([layerId, l]) => {
-                layersObj[layerId] = {
-                  pattern: l.pattern,
-                  division: String(l.division),
-                  attack: l.attack,
-                  decay: l.decay
-                };
-              });
-              return {
-                duration_seconds: bank.durationSeconds,
-                layers: layersObj
-              };
-            });
-
-            const data = {
-              request: {
-                sequence: {
-                  fps: sequence.fps,
-                  loop_seconds: sequence.durationSeconds,
-                  lights: sequence.lights.map((l) => ({
-                    id: l.id,
-                    name: l.name,
-                    file_path: l.filePath,
-                    division: String(l.division),
-                    pattern: l.pattern,
-                    attack: l.attack,
-                    decay: l.decay,
-                    intensity: l.intensity,
-                    curve: l.curve,
-                  })),
-                  sequence_bank: payloadSequenceBank,
-                  active_bank_slot: activeBankSlot,
-                },
-                output_path: path,
+                if (width % 2 !== 0) width -= 1;
+                if (height % 2 !== 0) height -= 1;
               }
+              resolve();
             };
-            await invoke("export_to_premiere", data);
+            img.onerror = reject;
+            import("@tauri-apps/api/core").then(({ convertFileSrc, isTauri }) => {
+              if (isTauri()) {
+                try { img.src = convertFileSrc(firstPath); } catch { img.src = firstPath; }
+              } else { img.src = firstPath; }
+            }).catch(() => { img.src = firstPath; });
+          });
+        } catch { /* fallback 1080p */ }
+
+        const controller = new AbortController();
+        window.__cancelExport = () => controller.abort();
+
+        import("../engine/exporter").then(async ({ exportToMp4 }) => {
+          const mp4Data = await exportToMp4({
+            sequence,
+            resolution: { width, height },
+            signal: controller.signal,
+            onProgress: (p) => window.__setExportProgress?.(p),
+          });
+          const { writeFile } = await import("@tauri-apps/plugin-fs");
+          await writeFile(path, mp4Data);
+          window.__setExportProgress?.({ phase: "done", progress: 1, message: `Saved to ${path}` });
+        }).catch(e => {
+          if (String(e).includes("aborted")) { window.__setExportProgress?.(null); return; }
+          window.__setExportProgress?.({ phase: "error", progress: 0, message: String(e) });
+        });
+      } else {
+        // XML export (chopped or matte)
+        const exportMode = format === "xml-matte" ? "matte" : "chopped";
+        const path = await save({
+          filters: [{ name: "STEP XML", extensions: ["xml"] }],
+          defaultPath: `${projectName || "sequence"}_export.xml`
+        });
+        if (!path) return;
+
+        const exportBank = [...sequenceBank];
+        if (hasNonZeroPatterns(sequence.lights)) {
+          const currentLayers: Record<string, any> = {};
+          sequence.lights.forEach(l => {
+            currentLayers[l.id] = { pattern: l.pattern.map((v: any) => v ?? 0), division: l.division, attack: l.attack, decay: l.decay };
+          });
+          exportBank[activeBankSlot] = { durationSeconds: sequence.durationSeconds, layers: currentLayers };
+        } else {
+          exportBank[activeBankSlot] = null;
         }
+
+        const payloadSequenceBank = exportBank.map(bank => {
+          if (!bank) return null;
+          const layersObj: Record<string, any> = {};
+          Object.entries(bank.layers).forEach(([layerId, l]) => {
+            layersObj[layerId] = {
+              pattern: (l.pattern || []).map((v: any) => v ?? 0),
+              division: String(l.division),
+              attack: l.attack ?? 0,
+              decay: l.decay ?? 0
+            };
+          });
+          return { duration_seconds: bank.durationSeconds, layers: layersObj };
+        });
+
+        await invoke("export_to_premiere", {
+          request: {
+            sequence: {
+              fps: sequence.fps,
+              loop_seconds: sequence.durationSeconds,
+              lights: sequence.lights.map((l) => ({
+                id: l.id, name: l.name, file_path: l.filePath,
+                division: String(l.division),
+                pattern: l.pattern.map((v: any) => v ?? 0),
+                attack: l.attack, decay: l.decay, intensity: l.intensity, curve: l.curve,
+              })),
+              sequence_bank: payloadSequenceBank,
+              active_bank_slot: activeBankSlot,
+              project_name: projectName,
+            },
+            output_path: path,
+            export_mode: exportMode,
+          }
+        });
       }
     } catch (e: any) {
       console.error("Export failed:", e);
-      if (window.__setExportProgress) {
-        window.__setExportProgress({ phase: "error", progress: 0, message: e.message || "Export failed" });
-      }
+      window.__setExportProgress?.({ phase: "error", progress: 0, message: e.message || "Export failed" });
     }
   };
 
@@ -331,7 +323,19 @@ export function TopBar() {
   return (
     <div className="flex flex-col shrink-0 font-sans tracking-wide bg-[#111] border-b border-[#0a0a0a] mb-[12px] shadow-[0_4px_10px_rgba(0,0,0,0.5)] z-50">
       <div className="flex items-center h-[44px] bg-[#0a0a0a] px-4 gap-5">
-        
+
+        {/* Project Name */}
+        <input
+          type="text"
+          value={projectName}
+          onChange={(e) => setProjectName(e.target.value)}
+          placeholder="Project Name"
+          className="bg-transparent text-[#e89f41] text-[11px] font-bold tracking-widest border-b border-white/10 focus:border-[#e89f41]/50 focus:outline-none w-[160px] px-1 py-0.5 placeholder-white/20"
+          spellCheck={false}
+        />
+
+        <div className="w-px h-3 bg-white/10" />
+
         {/* File Operations */}
         <div className="flex items-center gap-4">
           <button onClick={handleImport} className="text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-white transition-colors">Import</button>
@@ -392,16 +396,18 @@ export function TopBar() {
             <div className="flex-1" />
 
             <div className="flex items-center">
-               <button 
-                 onClick={debugPopulateLayers}
-                 className="text-[10px] font-bold uppercase tracking-widest text-white border border-[#e89f41]/50 bg-[#e89f41]/10 hover:bg-[#e89f41]/20 px-2 py-1 rounded transition-colors"
+               <button
+                 onClick={() => setShowInfo(true)}
+                 className="text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-[#e89f41] border border-white/10 hover:border-[#e89f41]/50 px-2 py-1 rounded transition-colors"
                >
-                 DEBUG
+                 INFO
                </button>
             </div>
           </>
         )}
       </div>
+      {showInfo && <InfoModal onClose={() => setShowInfo(false)} />}
+      {showExport && <ExportModal onExport={doExport} onClose={() => setShowExport(false)} />}
     </div>
   );
 }

@@ -8,6 +8,10 @@ import type {
 import { generateGridPatterns } from "../engine/patterns";
 import { getTotalFrames } from "../engine/frameMath";
 
+export function hasNonZeroPatterns(lights: LightLayer[]): boolean {
+  return lights.some(l => l.pattern.some(v => v !== 0));
+}
+
 function generateId(): string {
   return `light-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -36,6 +40,7 @@ type PatternBank = {
     attack?: number;
     decay?: number;
   }>;
+  lastAppliedGenerator?: string | null;
 };
 
 type UndoableState = {
@@ -45,13 +50,14 @@ type UndoableState = {
 };
 
 interface SequencerState {
+  projectName: string;
   sequence: StepSequence;
   sequenceBank: Array<PatternBank | null>;
   activeBankSlot: number;
   currentFrame: number;
   isPlaying: boolean;
   selectedLayerId: string | null;
-  useAmount: number;
+  lastAppliedGenerator: string | null;
   past: UndoableState[];
   future: UndoableState[];
 }
@@ -64,17 +70,16 @@ interface SequencerActions {
   removeLight: (id: string) => void;
   updateLight: (id: string, updates: Partial<LightLayer>) => void;
   setGlobalControl: (key: keyof LightLayer, value: any) => void;
-  toggleFrameTrigger: (lightId: string, frameIndex: number) => void;
   setFrameTrigger: (lightId: string, frameIndex: number, value: number) => void;
   applyLiveGenerator: (config: GeneratorConfig) => void;
   setCurrentFrame: (frame: number) => void;
   setIsPlaying: (playing: boolean) => void;
   setSelectedLayer: (id: string | null) => void;
-  loadSequence: (data: { seq: StepSequence, bank?: Array<PatternBank | null>, activeSlot?: number }) => void;
+  setProjectName: (name: string) => void;
+  loadSequence: (data: { seq: StepSequence, bank?: Array<PatternBank | null>, activeSlot?: number, projectName?: string }) => void;
   resetSequence: () => void;
   switchBankSlot: (slotIndex: number) => void;
   clearAll: (shiftKey: boolean) => void;
-  setUseAmount: (amount: number) => void;
   debugPopulateLayers: () => void;
   commitUndoSnapshot: () => void;
   undo: () => void;
@@ -89,15 +94,18 @@ const defaultSequence: StepSequence = {
 
 export const useSequencerStore = create<SequencerState & SequencerActions>(
   (set, get) => ({
+    projectName: "",
     sequence: defaultSequence,
     sequenceBank: new Array(32).fill(null),
     activeBankSlot: 0,
     currentFrame: 0,
     isPlaying: false,
     selectedLayerId: null,
-    useAmount: 0.5,
+    lastAppliedGenerator: null,
     past: [],
     future: [],
+
+    setProjectName: (name) => set({ projectName: name }),
 
     commitUndoSnapshot: () => set((state) => {
       // Targeted structural sharing: only deep-clone the active sequence memory.
@@ -285,19 +293,6 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
         },
       })),
 
-    toggleFrameTrigger: (lightId, frameIndex) =>
-      set((state) => ({
-        sequence: {
-          ...state.sequence,
-          lights: state.sequence.lights.map((l) => {
-            if (l.id !== lightId) return l;
-            const next = [...l.pattern];
-            next[frameIndex] = next[frameIndex] ? 0 : 1;
-            return { ...l, pattern: next };
-          }),
-        },
-      })),
-
     setFrameTrigger: (lightId, frameIndex, value) =>
       set((state) => ({
         sequence: {
@@ -326,6 +321,7 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
               return l;
             }),
           },
+          lastAppliedGenerator: config.type,
         };
       });
     },
@@ -333,20 +329,19 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
     setCurrentFrame: (frame) => set({ currentFrame: frame }),
     setIsPlaying: (isPlaying) => set({ isPlaying }),
     setSelectedLayer: (selectedLayerId) => set({ selectedLayerId }),
-    loadSequence: ({ seq, bank, activeSlot }) => {
+    loadSequence: ({ seq, bank, activeSlot, projectName }) => {
       get().commitUndoSnapshot();
-      set((state) => ({ 
+      set((state) => ({
         sequence: seq,
         sequenceBank: bank || state.sequenceBank,
-        activeBankSlot: activeSlot ?? state.activeBankSlot
+        activeBankSlot: activeSlot ?? state.activeBankSlot,
+        projectName: projectName ?? state.projectName,
       }));
     },
     resetSequence: () => {
       get().commitUndoSnapshot();
       set({ sequence: defaultSequence });
     },
-    setUseAmount: (useAmount) => set({ useAmount }),
-    
     debugPopulateLayers: () => {
       get().commitUndoSnapshot();
       set((state) => {
@@ -393,18 +388,22 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
       set((state) => {
         if (state.activeBankSlot === slotIndex) return state;
 
-        // Auto-save current sequence patterns into current slot
+        // Auto-save current sequence patterns into current slot (only if non-empty)
         const newBank = [...state.sequenceBank];
-        
-        const currentLayers: Record<string, { pattern: number[]; division: import("../types").Division; attack: number; decay: number; }> = {};
-        state.sequence.lights.forEach(l => {
-          currentLayers[l.id] = { pattern: [...l.pattern], division: l.division, attack: l.attack, decay: l.decay };
-        });
 
-        newBank[state.activeBankSlot] = {
-          durationSeconds: state.sequence.durationSeconds,
-          layers: currentLayers,
-        };
+        if (hasNonZeroPatterns(state.sequence.lights)) {
+          const currentLayers: Record<string, { pattern: number[]; division: import("../types").Division; attack: number; decay: number; }> = {};
+          state.sequence.lights.forEach(l => {
+            currentLayers[l.id] = { pattern: [...l.pattern], division: l.division, attack: l.attack, decay: l.decay };
+          });
+          newBank[state.activeBankSlot] = {
+            durationSeconds: state.sequence.durationSeconds,
+            layers: currentLayers,
+            lastAppliedGenerator: state.lastAppliedGenerator,
+          };
+        } else {
+          newBank[state.activeBankSlot] = null;
+        }
 
         let nextSequence = { ...state.sequence };
         
@@ -440,10 +439,13 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
           }));
         }
 
+        const loadedGen = newBank[slotIndex]?.lastAppliedGenerator ?? null;
+
         return {
           sequenceBank: newBank,
           activeBankSlot: slotIndex,
           sequence: nextSequence,
+          lastAppliedGenerator: loadedGen,
         };
       });
     },
@@ -458,6 +460,7 @@ export const initStorePersistence = async () => {
     if (dataStr) {
       const data = JSON.parse(dataStr);
       useSequencerStore.setState({
+         projectName: data.projectName || "",
          sequence: data.sequence,
          sequenceBank: data.sequenceBank,
          activeBankSlot: data.activeBankSlot || 0
@@ -471,6 +474,7 @@ export const initStorePersistence = async () => {
     clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(() => {
        const data = JSON.stringify({
+         projectName: state.projectName,
          sequence: state.sequence,
          sequenceBank: state.sequenceBank,
          activeBankSlot: state.activeBankSlot

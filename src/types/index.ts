@@ -35,7 +35,8 @@ export type GeneratorType =
   | "sweep"
   | "block"
   | "chaser"
-  | "ramp";
+  | "ramp"
+  | "shapes";
 
 export interface RandomConfig { density: number; variation: number; }
 export interface WaveConfig { width: number; speed: number; }
@@ -44,6 +45,7 @@ export interface SweepConfig { direction: "left" | "right" | "up" | "down"; slop
 export interface BlockConfig { spacing: number; shuffle: number; }
 export interface ChaserConfig { steps: number; stride: number; repeat: boolean; }
 export interface RampConfig { amount: number; direction: "in" | "out"; }
+export interface ShapesConfig { shape: "circle" | "triangle" | "square" | "star" | "smiley"; size: number; density: number; }
 
 export type GeneratorConfig =
   | { type: "random"; config: RandomConfig }
@@ -52,4 +54,5 @@ export type GeneratorConfig =
   | { type: "sweep"; config: SweepConfig }
   | { type: "block"; config: BlockConfig }
   | { type: "chaser"; config: ChaserConfig }
-  | { type: "ramp"; config: RampConfig };
+  | { type: "ramp"; config: RampConfig }
+  | { type: "shapes"; config: ShapesConfig };
