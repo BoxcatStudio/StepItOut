@@ -1,6 +1,6 @@
 [package]
 name = "step-it-out"
-version = "0.0.10"
+version = "0.0.11"
 description = "Step sequencer for light pass animations"
 authors = ["you"]
 license = ""

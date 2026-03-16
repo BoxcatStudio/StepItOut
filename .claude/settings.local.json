@@ -19,7 +19,11 @@
       "Bash(gh release:*)",
       "Bash(gh run:*)",
       "Bash(find '/c/Users/Lexy/Documents/Software Dev/Step it out/src-tauri' -type f -name *.rs)",
-      "Bash(find 'C:\\\\Users\\\\Lexy\\\\Documents\\\\Software Dev\\\\Step it out' -name *DEPLOY* -o -name *latest.json* -o -name *updater*)"
+      "Bash(find 'C:\\\\Users\\\\Lexy\\\\Documents\\\\Software Dev\\\\Step it out' -name *DEPLOY* -o -name *latest.json* -o -name *updater*)",
+      "Bash(grep -i \"tsx\\\\|ts$\")",
+      "Bash(xargs grep:*)",
+      "Bash(find 'C:/Users/Lexy/Documents/Software Dev/Step it out' -name *.config.* -o -name *settings* -o -name *config*)",
+      "Bash(grep -i \"\\\\.tsx\\\\|\\\\.ts$\")"
     ]
   }
 }
