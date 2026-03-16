@@ -298,7 +298,7 @@ export function SequencerGrid() {
                     className={`shrink-0 sticky left-0 z-30 border-r border-[#0a0a0a] transition-colors ${isSelected ? "bg-[#252525]" : "bg-[#1e1e1e]"} ${light.muted ? "opacity-40 grayscale" : ""} ${isMultiSelected ? "ring-1 ring-inset ring-blue-400/40" : ""}`}
                     style={{ width: GRID.ORIGIN_X, borderLeft: layerGroup ? `3px solid ${layerGroup.color}` : "3px solid transparent" }}
                     onClick={(e) => {
-                      if (e.ctrlKey || e.metaKey) {
+                      if (e.shiftKey) {
                         e.stopPropagation();
                         toggleLayerMultiSelect(light.id);
                       }
@@ -452,7 +452,7 @@ export function SequencerGrid() {
                     </button>
                   )}
                   {allToGroup.length < 2 && groups.length === 0 && (
-                    <div className="px-3 py-2 text-[8px] text-white/20">Ctrl+click more layers to group</div>
+                    <div className="px-3 py-2 text-[8px] text-white/20">Shift+click more layers to group</div>
                   )}
                 </>
               );

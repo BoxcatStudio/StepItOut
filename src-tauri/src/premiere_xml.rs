@@ -153,6 +153,7 @@ pub fn generate_fcp_xml(seq: &StepSeqFile) -> Result<String, String> {
         xml.push_str("              <samplecharacteristics>\n");
         xml.push_str(&format!("                <width>{}</width>\n", width));
         xml.push_str(&format!("                <height>{}</height>\n", height));
+        xml.push_str("                <pixelaspectratio>square</pixelaspectratio>\n");
         xml.push_str("              </samplecharacteristics>\n");
         xml.push_str("            </video>\n");
         xml.push_str("          </media>\n");
@@ -229,6 +230,7 @@ fn write_sequence(
     xml.push_str("              <samplecharacteristics>\n");
     xml.push_str(&format!("                <width>{}</width>\n", width));
     xml.push_str(&format!("                <height>{}</height>\n", height));
+    xml.push_str("                <pixelaspectratio>square</pixelaspectratio>\n");
     xml.push_str("              </samplecharacteristics>\n");
     xml.push_str("            </format>\n");
 
@@ -287,7 +289,7 @@ fn write_sequence(
 
             xml.push_str(&format!("              <clipitem id=\"{}\">\n", item_id));
             xml.push_str(&format!("                <name>{}</name>\n", escape_xml(&light.name)));
-            xml.push_str(&format!("                <duration>{}</duration>\n", total_frames));
+            xml.push_str(&format!("                <duration>{}</duration>\n", clip_len));
             xml.push_str("                <rate>\n");
             xml.push_str(&format!("                  <timebase>{}</timebase>\n", timebase));
             xml.push_str("                  <ntsc>FALSE</ntsc>\n");
@@ -421,6 +423,7 @@ pub fn generate_fcp_xml_matte(seq: &StepSeqFile) -> Result<String, String> {
         xml.push_str("              <samplecharacteristics>\n");
         xml.push_str(&format!("                <width>{}</width>\n", width));
         xml.push_str(&format!("                <height>{}</height>\n", height));
+        xml.push_str("                <pixelaspectratio>square</pixelaspectratio>\n");
         xml.push_str("              </samplecharacteristics>\n");
         xml.push_str("            </video>\n");
         xml.push_str("          </media>\n");
@@ -496,6 +499,7 @@ fn write_matte_sequence(
     xml.push_str("              <samplecharacteristics>\n");
     xml.push_str(&format!("                <width>{}</width>\n", width));
     xml.push_str(&format!("                <height>{}</height>\n", height));
+    xml.push_str("                <pixelaspectratio>square</pixelaspectratio>\n");
     xml.push_str("              </samplecharacteristics>\n");
     xml.push_str("            </format>\n");
 

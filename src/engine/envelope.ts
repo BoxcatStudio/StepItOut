@@ -10,6 +10,11 @@ export interface Envelope {
   curve: CurvePreset;
 }
 
+// Cache envelope builds keyed by pattern array reference.
+// Pattern arrays are replaced (new reference) whenever a pattern changes,
+// so this cache stays valid for the lifetime of a pattern without invalidation logic.
+const _envelopeCache = new WeakMap<number[], Envelope[]>();
+
 export function getOpacityAtFrame(
   layer: LightLayer,
   frame: number,
@@ -33,6 +38,10 @@ function buildEnvelopes(
   durationSeconds: number,
   fps: number
 ): Envelope[] {
+  if (_envelopeCache.has(layer.pattern)) {
+    return _envelopeCache.get(layer.pattern)!;
+  }
+
   const envelopes: Envelope[] = [];
   const totalFrames = getTotalFrames(durationSeconds, fps);
   const patLen = layer.pattern.length;
@@ -72,6 +81,7 @@ function buildEnvelopes(
     });
   }
 
+  _envelopeCache.set(layer.pattern, envelopes);
   return envelopes;
 }
 

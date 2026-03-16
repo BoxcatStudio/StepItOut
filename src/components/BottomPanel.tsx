@@ -61,12 +61,14 @@ function GenCard({ name, onApply, knobs, options, repeat, isActive }: {
 }
 
 // Group item row in the Groups panel (defined outside for stable identity)
-function GroupItem({ group, isActive, onSelect, onDelete, onRename }: {
+function GroupItem({ group, isActive, onSelect, onDelete, onRename, onAddSelected, hasSelection }: {
   group: LayerGroup;
   isActive: boolean;
   onSelect: () => void;
   onDelete: () => void;
   onRename: (name: string) => void;
+  onAddSelected?: () => void;
+  hasSelection?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(group.name);
@@ -96,11 +98,19 @@ function GroupItem({ group, isActive, onSelect, onDelete, onRename }: {
         </button>
       )}
       <span className="text-[8px] text-white/20 shrink-0">{group.layerIds.length}</span>
-      <button
-        onClick={e => { e.stopPropagation(); onDelete(); }}
-        className="opacity-0 group-hover/grp:opacity-100 text-white/30 hover:text-red-400 transition-all text-[11px] font-bold shrink-0 leading-none"
-        title="Delete group"
-      >×</button>
+      {hasSelection && onAddSelected ? (
+        <button
+          onClick={e => { e.stopPropagation(); onAddSelected(); }}
+          className="text-[#e89f41]/60 hover:text-[#e89f41] transition-all text-[11px] font-bold shrink-0 leading-none"
+          title="Add selected layers to group"
+        >+</button>
+      ) : (
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(); }}
+          className="opacity-0 group-hover/grp:opacity-100 text-white/30 hover:text-red-400 transition-all text-[11px] font-bold shrink-0 leading-none"
+          title="Delete group"
+        >×</button>
+      )}
     </div>
   );
 }
@@ -199,12 +209,23 @@ export function BottomPanel() {
               onSelect={() => setSelectedGroup(group.id)}
               onDelete={() => deleteGroup(group.id)}
               onRename={(name) => renameGroup(group.id, name)}
+              hasSelection={selectedLayerIds.length > 0}
+              onAddSelected={() => {
+                useSequencerStore.setState(s => ({
+                  groups: s.groups.map(g => g.id === group.id
+                    ? { ...g, layerIds: [...new Set([...g.layerIds, ...selectedLayerIds])] }
+                    : g
+                  ),
+                  selectedLayerIds: [],
+                }));
+                setSelectedGroup(group.id);
+              }}
             />
           ))}
 
           {groups.length === 0 && (
             <div className="text-[8px] text-white/15 text-center py-4 px-2 leading-relaxed">
-              Ctrl+click layers in grid then right-click to group
+              Shift+click layers then right-click to group
             </div>
           )}
 
