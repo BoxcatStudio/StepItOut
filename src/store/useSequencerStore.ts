@@ -42,6 +42,7 @@ type PatternBank = {
     decay?: number;
   }>;
   lastAppliedGenerator?: string | null;
+  groups?: LayerGroup[];
 };
 
 type UndoableState = {
@@ -86,6 +87,7 @@ interface SequencerActions {
   toggleLayerMultiSelect: (layerId: string) => void;
   clearLayerMultiSelect: () => void;
   removeLayerFromGroup: (layerId: string) => void;
+  setGroupControl: (groupId: string, attack: number, decay: number) => void;
   applyLiveGenerator: (config: GeneratorConfig) => void;
   setCurrentFrame: (frame: number) => void;
   setIsPlaying: (playing: boolean) => void;
@@ -395,6 +397,23 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
         })),
       })),
 
+    setGroupControl: (groupId, attack, decay) =>
+      set((state) => {
+        const group = state.groups.find(g => g.id === groupId);
+        if (!group) return state;
+        return {
+          groups: state.groups.map(g =>
+            g.id === groupId ? { ...g, attack, decay } : g
+          ),
+          sequence: {
+            ...state.sequence,
+            lights: state.sequence.lights.map(l =>
+              group.layerIds.includes(l.id) ? { ...l, attack, decay } : l
+            ),
+          },
+        };
+      }),
+
     applyLiveGenerator: (config) => {
       get().commitUndoSnapshot();
       set((state) => {
@@ -499,6 +518,7 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
             durationSeconds: state.sequence.durationSeconds,
             layers: currentLayers,
             lastAppliedGenerator: state.lastAppliedGenerator,
+            groups: state.groups,
           };
         } else {
           newBank[state.activeBankSlot] = null;
@@ -539,12 +559,15 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
         }
 
         const loadedGen = newBank[slotIndex]?.lastAppliedGenerator ?? null;
+        const loadedGroups = newBank[slotIndex]?.groups ?? [];
 
         return {
           sequenceBank: newBank,
           activeBankSlot: slotIndex,
           sequence: nextSequence,
           lastAppliedGenerator: loadedGen,
+          groups: loadedGroups,
+          selectedGroupId: null,
         };
       });
     },

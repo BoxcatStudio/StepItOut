@@ -23,7 +23,11 @@
       "Bash(grep -i \"tsx\\\\|ts$\")",
       "Bash(xargs grep:*)",
       "Bash(find 'C:/Users/Lexy/Documents/Software Dev/Step it out' -name *.config.* -o -name *settings* -o -name *config*)",
-      "Bash(grep -i \"\\\\.tsx\\\\|\\\\.ts$\")"
+      "Bash(grep -i \"\\\\.tsx\\\\|\\\\.ts$\")",
+      "Bash(grep -v \"^--$\")",
+      "Bash(find '/c/Users/Lexy/Documents/Software Dev/Step it out' -maxdepth 2 -name *.key -o -name stepitout* -o -name *.minisign)",
+      "Bash(find /c/Users/Lexy -maxdepth 3 -name *.key)",
+      "Bash(grep -v \"node_modules\\\\|target\\\\|\\\\.git\\\\|cargo\\\\|Adobe\" find /c/Users/Lexy -maxdepth 3 -name stepitout*)"
     ]
   }
 }

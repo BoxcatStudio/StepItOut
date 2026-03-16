@@ -128,6 +128,7 @@ export function BottomPanel() {
   const deleteGroup = useSequencerStore(s => s.deleteGroup);
   const renameGroup = useSequencerStore(s => s.renameGroup);
   const createGroup = useSequencerStore(s => s.createGroup);
+  const setGroupControl = useSequencerStore(s => s.setGroupControl);
 
   const [randomCfg, setRandomCfg] = useState<RandomConfig>({ density: 20, variation: 0 });
   const [waveCfg, setWaveCfg] = useState<WaveConfig>({ width: 20, speed: 50 });
@@ -223,23 +224,40 @@ export function BottomPanel() {
             />
           ))}
 
-          {groups.length === 0 && (
+          {groups.length === 0 && selectedLayerIds.length === 0 && (
             <div className="text-[8px] text-white/15 text-center py-4 px-2 leading-relaxed">
               Shift+click layers then right-click to group
             </div>
           )}
 
-          {/* Create group from selected layers */}
-          {selectedLayerIds.length >= 2 && (
+          {/* Create group from selected layers (1 or more) */}
+          {selectedLayerIds.length >= 1 && (
             <div className="mt-auto border-t border-white/10 p-1.5">
               <button
                 onClick={() => createGroup(`Group ${groups.length + 1}`, selectedLayerIds)}
                 className="w-full text-[8px] font-bold uppercase tracking-wider text-[#e89f41]/70 hover:text-[#e89f41] transition-colors py-1 text-center"
               >
-                Group {selectedLayerIds.length} selected
+                + Group {selectedLayerIds.length > 1 ? `${selectedLayerIds.length} layers` : "layer"}
               </button>
             </div>
           )}
+
+          {/* Attack / Decay knobs for selected group */}
+          {selectedGroupId && (() => {
+            const activeGroup = groups.find(g => g.id === selectedGroupId);
+            if (!activeGroup) return null;
+            const atk = activeGroup.attack ?? 2;
+            const dcy = activeGroup.decay ?? 6;
+            return (
+              <div className="border-t border-white/10 px-2 pt-2 pb-1.5 flex flex-col gap-1">
+                <span className="text-[7px] text-white/20 uppercase tracking-widest text-center">Group Envelope</span>
+                <div className="flex justify-center gap-4">
+                  <LabeledKnob label="Attack" value={atk} max={10} onChange={v => setGroupControl(selectedGroupId, v, dcy)} />
+                  <LabeledKnob label="Decay" value={dcy} max={10} onChange={v => setGroupControl(selectedGroupId, atk, v)} />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

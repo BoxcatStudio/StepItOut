@@ -34,6 +34,8 @@ export interface LayerGroup {
   name: string;
   color: string;
   layerIds: string[];
+  attack?: number;
+  decay?: number;
 }
 
 export type GeneratorType =

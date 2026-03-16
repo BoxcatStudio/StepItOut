@@ -41,10 +41,20 @@ powershell -Command "(Get-Content src-tauri\Cargo.toml -Raw) -replace '(?m)^vers
 echo [3/6] Updating tauri.conf.json...
 powershell -Command "(Get-Content src-tauri\tauri.conf.json -Raw) -replace '\"version\": \".*?\"', '\"version\": \"%VERSION%\"' | Set-Content src-tauri\tauri.conf.json -NoNewline"
 
-:: Build
-echo [4/6] Building release...
+:: Load signing key for updater artifact generation
+echo [4/6] Loading signing key...
+if not exist "%USERPROFILE%\.tauri\stepitout.key" (
+    echo   ERROR: Signing key not found at %USERPROFILE%\.tauri\stepitout.key
+    pause
+    exit /b 1
+)
+set /p TAURI_SIGNING_PRIVATE_KEY_PASSWORD=Enter signing key password (leave blank if none):
 echo.
-call npm run tauri build
+
+:: Build (PowerShell reads multiline key file into env var for Tauri)
+echo [5/7] Building release...
+echo.
+powershell -Command "$env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content '%USERPROFILE%\.tauri\stepitout.key' -Raw); npm run tauri build; exit $LASTEXITCODE"
 if errorlevel 1 (
     echo.
     echo ===================================
@@ -57,18 +67,18 @@ if errorlevel 1 (
 
 :: Git commit and tag
 echo.
-echo [5/6] Committing v%VERSION%...
+echo [6/7] Committing v%VERSION%...
 git add -A
 git commit -m "v%VERSION%"
 git tag v%VERSION%
 
 :: Push to trigger GitHub Actions
-echo [6/6] Pushing to GitHub...
+echo [7/7] Pushing to GitHub...
 git push origin main --tags
 
 echo.
 echo ===================================
-echo   Deploy Complete - v%VERSION%
+echo   Deploy Complete - v%VERSION% (signed)
 echo ===================================
 echo.
 echo   Local installer:
