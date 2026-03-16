@@ -4,6 +4,7 @@ import type {
   LightLayer,
   StepSequence,
   GeneratorConfig,
+  LayerGroup,
 } from "../types";
 import { generateGridPatterns } from "../engine/patterns";
 import { getTotalFrames } from "../engine/frameMath";
@@ -49,6 +50,8 @@ type UndoableState = {
   activeBankSlot: number;
 };
 
+const GROUP_COLORS = ["#4a9eff", "#7cfc00", "#ff6b6b", "#c084fc", "#f97316", "#06b6d4", "#84cc16", "#f43f5e"];
+
 interface SequencerState {
   projectName: string;
   sequence: StepSequence;
@@ -58,6 +61,9 @@ interface SequencerState {
   isPlaying: boolean;
   selectedLayerId: string | null;
   lastAppliedGenerator: string | null;
+  groups: LayerGroup[];
+  selectedGroupId: string | null;
+  selectedLayerIds: string[];
   past: UndoableState[];
   future: UndoableState[];
 }
@@ -71,12 +77,21 @@ interface SequencerActions {
   updateLight: (id: string, updates: Partial<LightLayer>) => void;
   setGlobalControl: (key: keyof LightLayer, value: any) => void;
   setFrameTrigger: (lightId: string, frameIndex: number, value: number) => void;
+  setCellRange: (lightId: string, startFrame: number, span: number, value: number) => void;
+  toggleMute: (lightId: string) => void;
+  createGroup: (name: string, layerIds: string[]) => void;
+  deleteGroup: (groupId: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+  setSelectedGroup: (groupId: string | null) => void;
+  toggleLayerMultiSelect: (layerId: string) => void;
+  clearLayerMultiSelect: () => void;
+  removeLayerFromGroup: (layerId: string) => void;
   applyLiveGenerator: (config: GeneratorConfig) => void;
   setCurrentFrame: (frame: number) => void;
   setIsPlaying: (playing: boolean) => void;
   setSelectedLayer: (id: string | null) => void;
   setProjectName: (name: string) => void;
-  loadSequence: (data: { seq: StepSequence, bank?: Array<PatternBank | null>, activeSlot?: number, projectName?: string }) => void;
+  loadSequence: (data: { seq: StepSequence, bank?: Array<PatternBank | null>, activeSlot?: number, projectName?: string, groups?: LayerGroup[] }) => void;
   resetSequence: () => void;
   switchBankSlot: (slotIndex: number) => void;
   clearAll: (shiftKey: boolean) => void;
@@ -102,6 +117,9 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
     isPlaying: false,
     selectedLayerId: null,
     lastAppliedGenerator: null,
+    groups: [],
+    selectedGroupId: null,
+    selectedLayerIds: [],
     past: [],
     future: [],
 
@@ -274,6 +292,8 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
           lights: state.sequence.lights.filter((l) => l.id !== id),
         },
         selectedLayerId: state.selectedLayerId === id ? null : state.selectedLayerId,
+        selectedLayerIds: state.selectedLayerIds.filter(lid => lid !== id),
+        groups: state.groups.map(g => ({ ...g, layerIds: g.layerIds.filter(lid => lid !== id) })),
       }));
     },
 
@@ -306,10 +326,88 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
         },
       })),
 
+    setCellRange: (lightId, startFrame, span, value) =>
+      set((state) => ({
+        sequence: {
+          ...state.sequence,
+          lights: state.sequence.lights.map((l) => {
+            if (l.id !== lightId) return l;
+            const next = [...l.pattern];
+            for (let f = startFrame; f < Math.min(startFrame + span, next.length); f++) {
+              next[f] = value;
+            }
+            return { ...l, pattern: next };
+          }),
+        },
+      })),
+
+    toggleMute: (lightId) =>
+      set((state) => ({
+        sequence: {
+          ...state.sequence,
+          lights: state.sequence.lights.map((l) =>
+            l.id === lightId ? { ...l, muted: !l.muted } : l
+          ),
+        },
+      })),
+
+    createGroup: (name, layerIds) =>
+      set((state) => ({
+        groups: [
+          ...state.groups,
+          {
+            id: `group-${Date.now()}`,
+            name,
+            color: GROUP_COLORS[state.groups.length % GROUP_COLORS.length],
+            layerIds,
+          },
+        ],
+        selectedLayerIds: [],
+      })),
+
+    deleteGroup: (groupId) =>
+      set((state) => ({
+        groups: state.groups.filter(g => g.id !== groupId),
+        selectedGroupId: state.selectedGroupId === groupId ? null : state.selectedGroupId,
+      })),
+
+    renameGroup: (groupId, name) =>
+      set((state) => ({
+        groups: state.groups.map(g => g.id === groupId ? { ...g, name } : g),
+      })),
+
+    setSelectedGroup: (groupId) => set({ selectedGroupId: groupId }),
+
+    toggleLayerMultiSelect: (layerId) =>
+      set((state) => ({
+        selectedLayerIds: state.selectedLayerIds.includes(layerId)
+          ? state.selectedLayerIds.filter(id => id !== layerId)
+          : [...state.selectedLayerIds, layerId],
+      })),
+
+    clearLayerMultiSelect: () => set({ selectedLayerIds: [] }),
+
+    removeLayerFromGroup: (layerId) =>
+      set((state) => ({
+        groups: state.groups.map(g => ({
+          ...g,
+          layerIds: g.layerIds.filter(id => id !== layerId),
+        })),
+      })),
+
     applyLiveGenerator: (config) => {
       get().commitUndoSnapshot();
       set((state) => {
-        const generatedPatterns = generateGridPatterns(config, state.sequence.lights);
+        const { selectedGroupId, groups } = state;
+        let targetLayers = state.sequence.lights;
+        if (selectedGroupId) {
+          const group = groups.find(g => g.id === selectedGroupId);
+          if (group) {
+            targetLayers = state.sequence.lights.filter(l => group.layerIds.includes(l.id));
+          }
+        }
+
+        const generatedPatterns = generateGridPatterns(config, targetLayers);
 
         return {
           sequence: {
@@ -329,13 +427,14 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
     setCurrentFrame: (frame) => set({ currentFrame: frame }),
     setIsPlaying: (isPlaying) => set({ isPlaying }),
     setSelectedLayer: (selectedLayerId) => set({ selectedLayerId }),
-    loadSequence: ({ seq, bank, activeSlot, projectName }) => {
+    loadSequence: ({ seq, bank, activeSlot, projectName, groups }) => {
       get().commitUndoSnapshot();
       set((state) => ({
         sequence: seq,
         sequenceBank: bank || state.sequenceBank,
         activeBankSlot: activeSlot ?? state.activeBankSlot,
         projectName: projectName ?? state.projectName,
+        groups: groups ?? state.groups,
       }));
     },
     resetSequence: () => {
@@ -463,7 +562,8 @@ export const initStorePersistence = async () => {
          projectName: data.projectName || "",
          sequence: data.sequence,
          sequenceBank: data.sequenceBank,
-         activeBankSlot: data.activeBankSlot || 0
+         activeBankSlot: data.activeBankSlot || 0,
+         groups: data.groups || [],
       });
     }
   } catch(e) {
@@ -477,7 +577,8 @@ export const initStorePersistence = async () => {
          projectName: state.projectName,
          sequence: state.sequence,
          sequenceBank: state.sequenceBank,
-         activeBankSlot: state.activeBankSlot
+         activeBankSlot: state.activeBankSlot,
+         groups: state.groups,
        });
        invoke("auto_save_state", { stateJson: data }).catch(console.error);
     }, 500); 

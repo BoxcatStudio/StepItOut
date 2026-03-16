@@ -9,6 +9,7 @@ interface LayerRowProps {
   isSelected: boolean;
   rowHeight?: number;
   onPreview?: (light: LightLayer) => void;
+  onToggleMute?: () => void;
 }
 
 const ROW_HEIGHT = 56; // Matched to SequencerGrid.tsx
@@ -113,7 +114,7 @@ export function Knob({ label: _label, value, max, onChange }: { label: string, v
 }
 
 export function LayerRow(props: LayerRowProps) {
-  const { light, isSelected } = props;
+  const { light, isSelected, onToggleMute } = props;
   const setSelectedLayer = useSequencerStore(s => s.setSelectedLayer);
   const updateLight = useSequencerStore(s => s.updateLight);
   const removeLight = useSequencerStore(s => s.removeLight);
@@ -153,16 +154,25 @@ export function LayerRow(props: LayerRowProps) {
         {/* Layer Controls & Thumbnail Column (120px) */}
         <div className="w-[120px] shrink-0 flex items-center justify-start gap-2 relative pl-2">
           
-          {/* Global Delete Layer Button */}
+          {/* Delete Layer Button */}
           <button
-            onClick={(e) => { 
-                e.stopPropagation(); 
+            onClick={(e) => {
+                e.stopPropagation();
                 removeLight(light.id);
             }}
             className="w-5 h-5 flex items-center justify-center opacity-0 hover:opacity-100 group-hover/row:opacity-100 text-[10px] text-white/30 hover:text-red-400 transition-all shrink-0"
             title="Delete Layer"
           >
             ✕
+          </button>
+
+          {/* Mute Button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleMute?.(); }}
+            className={`w-5 h-5 flex items-center justify-center text-[8px] font-bold rounded transition-all shrink-0 ${light.muted ? "bg-white/20 text-white/60" : "opacity-0 group-hover/row:opacity-100 text-white/20 hover:text-white/50"}`}
+            title={light.muted ? "Unmute" : "Mute"}
+          >
+            M
           </button>
 
           <div

@@ -146,6 +146,7 @@ self.onmessage = async (e: MessageEvent) => {
       ctx.globalCompositeOperation = "lighter";
 
       for (const light of sequence.lights) {
+        if (light.muted) continue;
         const opacity = getOpacityAtFrame(light, frameIndex, sequence.durationSeconds, fps);
         if (opacity <= 0) continue;
 

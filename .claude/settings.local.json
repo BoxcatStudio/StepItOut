@@ -15,7 +15,11 @@
       "Bash(npx @tauri-apps/cli icon src-tauri/icons/icon.svg -o src-tauri/icons)",
       "Bash(cargo clean:*)",
       "Bash(xargs wc:*)",
-      "Bash(npx tauri:*)"
+      "Bash(npx tauri:*)",
+      "Bash(gh release:*)",
+      "Bash(gh run:*)",
+      "Bash(find '/c/Users/Lexy/Documents/Software Dev/Step it out/src-tauri' -type f -name *.rs)",
+      "Bash(find 'C:\\\\Users\\\\Lexy\\\\Documents\\\\Software Dev\\\\Step it out' -name *DEPLOY* -o -name *latest.json* -o -name *updater*)"
     ]
   }
 }

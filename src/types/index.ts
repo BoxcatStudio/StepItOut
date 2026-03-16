@@ -20,12 +20,20 @@ export interface LightLayer {
   decay: number;
   intensity: number;
   curve: CurvePreset;
+  muted?: boolean;
 }
 
 export interface StepSequence {
   fps: number;
   durationSeconds: number;
   lights: LightLayer[];
+}
+
+export interface LayerGroup {
+  id: string;
+  name: string;
+  color: string;
+  layerIds: string[];
 }
 
 export type GeneratorType =
@@ -42,10 +50,10 @@ export interface RandomConfig { density: number; variation: number; }
 export interface WaveConfig { width: number; speed: number; }
 export interface MirrorConfig { shape: "x" | "triangle" | "diamond" | "funnel"; amount: number; angle: number; }
 export interface SweepConfig { direction: "left" | "right" | "up" | "down"; slope: number; amount: number; repeat: boolean; }
-export interface BlockConfig { spacing: number; shuffle: number; }
+export interface BlockConfig { timing: "beat" | "half-beat" | "quarter-beat"; amount: number; variation: number; }
 export interface ChaserConfig { steps: number; stride: number; repeat: boolean; }
 export interface RampConfig { amount: number; direction: "in" | "out"; }
-export interface ShapesConfig { shape: "circle" | "triangle" | "square" | "star" | "smiley"; size: number; density: number; }
+export interface ShapesConfig { shape: "arrow-up" | "arrow-down" | "chevron" | "line" | "wave"; period: 4 | 8; width: number; }
 
 export type GeneratorConfig =
   | { type: "random"; config: RandomConfig }

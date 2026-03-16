@@ -12,6 +12,8 @@ pub struct StepSeqLight {
     pub decay: u32,
     pub intensity: f64,
     pub curve: String,
+    #[serde(default)]
+    pub muted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

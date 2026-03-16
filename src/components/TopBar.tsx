@@ -5,7 +5,7 @@ import { InfoModal } from "./InfoModal";
 import { ExportModal, type ExportFormat } from "./ExportModal";
 import { getTotalFrames } from "../engine/frameMath";
 import { startPlayback, stopPlayback } from "../engine/playback";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
 
 function getNameFromPath(path: string): string {
   return path.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "Light";
@@ -78,6 +78,7 @@ export function TopBar() {
             decay: number;
             intensity: number;
             curve: string;
+            muted?: boolean;
           }>;
           sequence_bank?: Array<any | null>;
           active_bank_slot?: number;
@@ -117,6 +118,7 @@ export function TopBar() {
               decay: l.decay,
               intensity: l.intensity,
               curve: l.curve as import("../types").CurvePreset,
+              muted: l.muted || false,
             })),
           },
           bank: mappedBank,
@@ -183,6 +185,7 @@ export function TopBar() {
             decay: l.decay,
             intensity: l.intensity,
             curve: l.curve,
+            muted: l.muted || false,
           })),
           sequence_bank: payloadSequenceBank,
           active_bank_slot: activeBankSlot,
@@ -200,14 +203,109 @@ export function TopBar() {
     setShowExport(true);
   };
 
+  const handleBatchExport = async () => {
+    if (sequence.lights.length === 0) return;
+
+    const folder = await openDialog({ directory: true, multiple: false, title: "Choose output folder for batch MP4 export" });
+    if (!folder || typeof folder !== "string") return;
+
+    const baseName = (projectName || "sequence").replace(/[^a-zA-Z0-9_\-]/g, "_");
+
+    // Build a snapshot of the bank with the current slot included
+    const exportBank = [...sequenceBank];
+    if (hasNonZeroPatterns(sequence.lights)) {
+      const currentLayers: Record<string, any> = {};
+      sequence.lights.forEach(l => {
+        currentLayers[l.id] = { pattern: [...l.pattern], division: l.division, attack: l.attack, decay: l.decay };
+      });
+      exportBank[activeBankSlot] = { durationSeconds: sequence.durationSeconds, layers: currentLayers };
+    }
+
+    // Collect non-empty slots
+    const slotsToExport = exportBank
+      .map((bank, i) => ({ bank, slot: i }))
+      .filter(({ bank }) => bank !== null);
+
+    if (slotsToExport.length === 0) {
+      window.__setExportProgress?.({ phase: "error", progress: 0, message: "No non-empty sequences to export." });
+      return;
+    }
+
+    // Determine resolution from first image
+    let width = 1920;
+    let height = 1080;
+    const firstPath = sequence.lights[0]?.filePath;
+    if (firstPath) {
+      try {
+        const img = new Image();
+        await new Promise<void>((resolve) => {
+          img.onload = () => {
+            if (img.width && img.height) {
+              width = img.width; height = img.height;
+              const MAX = 3840;
+              if (width > MAX || height > MAX) {
+                const scale = Math.min(MAX / width, MAX / height);
+                width = Math.round(width * scale); height = Math.round(height * scale);
+              }
+              if (width % 2 !== 0) width -= 1;
+              if (height % 2 !== 0) height -= 1;
+            }
+            resolve();
+          };
+          img.onerror = () => resolve();
+          import("@tauri-apps/api/core").then(({ convertFileSrc, isTauri }) => {
+            img.src = isTauri() ? convertFileSrc(firstPath) : firstPath;
+          }).catch(() => { img.src = firstPath; });
+        });
+      } catch { /* use 1080p fallback */ }
+    }
+
+    const { exportToMp4 } = await import("../engine/exporter");
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    const pathSep = folder.includes("/") ? "/" : "\\";
+
+    for (let idx = 0; idx < slotsToExport.length; idx++) {
+      const { bank, slot } = slotsToExport[idx];
+      const slotNum = slot + 1;
+
+      window.__setExportProgress?.({
+        phase: "rendering", progress: idx / slotsToExport.length,
+        message: `Exporting slot ${slotNum} (${idx + 1}/${slotsToExport.length})...`
+      });
+
+      // Reconstruct the sequence for this slot
+      const slotSequence = {
+        ...sequence,
+        durationSeconds: bank!.durationSeconds,
+        lights: sequence.lights.map(l => {
+          const saved = bank!.layers[l.id];
+          if (saved) return { ...l, pattern: [...saved.pattern], division: saved.division, attack: saved.attack ?? l.attack, decay: saved.decay ?? l.decay };
+          return { ...l, pattern: new Array(Math.round(bank!.durationSeconds * sequence.fps)).fill(0) };
+        }),
+      };
+
+      try {
+        const mp4Data = await exportToMp4({ sequence: slotSequence, resolution: { width, height } });
+        const outPath = `${folder}${pathSep}${baseName}_mp4_${slotNum}.mp4`;
+        await writeFile(outPath, mp4Data);
+      } catch (e) {
+        console.error(`Slot ${slotNum} export failed:`, e);
+      }
+    }
+
+    window.__setExportProgress?.({ phase: "done", progress: 1, message: `Batch export complete — ${slotsToExport.length} files saved to ${folder}` });
+  };
+
   const doExport = async (format: ExportFormat, _selectedSlots: number[]) => {
     setShowExport(false);
     try {
       if (format === "mp4") {
         const ext = "mp4";
+        const slotNum = activeBankSlot + 1;
+        const baseName = (projectName || "sequence").replace(/[^a-zA-Z0-9_\-]/g, "_");
         const path = await save({
           filters: [{ name: "MP4 Video", extensions: [ext] }],
-          defaultPath: `${projectName || "sequence"}_export.${ext}`
+          defaultPath: `${baseName}_mp4_${slotNum}.${ext}`
         });
         if (!path) return;
 
@@ -302,6 +400,7 @@ export function TopBar() {
                 division: String(l.division),
                 pattern: l.pattern.map((v: any) => v ?? 0),
                 attack: l.attack, decay: l.decay, intensity: l.intensity, curve: l.curve,
+                muted: l.muted || false,
               })),
               sequence_bank: payloadSequenceBank,
               active_bank_slot: activeBankSlot,
@@ -342,6 +441,7 @@ export function TopBar() {
           <button onClick={handleLoad} className="text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-white transition-colors">Load</button>
           <button onClick={handleSave} disabled={sequence.lights.length === 0} className="text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-white disabled:opacity-30 transition-colors">Save</button>
           <button onClick={handleExport} disabled={sequence.lights.length === 0} className="text-[10px] font-bold uppercase tracking-widest text-[#e89f41]/70 hover:text-[#e89f41] disabled:opacity-30 transition-colors">Export</button>
+          <button onClick={handleBatchExport} disabled={sequence.lights.length === 0} className="text-[10px] font-bold uppercase tracking-widest text-[#e89f41]/40 hover:text-[#e89f41] disabled:opacity-30 transition-colors" title="Batch export all non-empty sequences as MP4">Batch</button>
         </div>
 
         {sequence.lights.length > 0 && (

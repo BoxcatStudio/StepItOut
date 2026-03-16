@@ -6,20 +6,27 @@ export function generateGridPatterns(
 ): Record<string, number[]> {
   const numLayers = layers.length;
   const result: Record<string, number[]> = {};
-  
+
   if (numLayers === 0) return result;
 
-  // Initialize empty patterns
+  // Only initialize patterns for non-muted layers — muted layers keep their existing patterns
   layers.forEach(l => {
-    result[l.id] = new Array(l.pattern.length).fill(0);
+    if (!l.muted) {
+      result[l.id] = new Array(l.pattern.length).fill(0);
+    }
   });
 
-  const maxSteps = Math.max(...layers.map(l => l.pattern.length));
-  
-  // Helper to ensure step is within a layer's range
-  const setStep = (lIndex: number, step: number, value: number = 1) => {
-    if (lIndex >= 0 && lIndex < numLayers) {
-      const layer = layers[lIndex];
+  // Active (non-muted) layers for generator logic
+  const activeLayers = layers.filter(l => !l.muted);
+  const numActive = activeLayers.length;
+  if (numActive === 0) return result;
+
+  const maxSteps = Math.max(...activeLayers.map(l => l.pattern.length));
+
+  // Helper to set a frame on an active layer by its index within activeLayers
+  const setStep = (aIndex: number, step: number, value: number = 1) => {
+    if (aIndex >= 0 && aIndex < numActive) {
+      const layer = activeLayers[aIndex];
       const mappedStep = Math.floor((step / maxSteps) * layer.pattern.length);
       if (mappedStep >= 0 && mappedStep < layer.pattern.length) {
         result[layer.id][mappedStep] = value;
@@ -30,15 +37,12 @@ export function generateGridPatterns(
   switch (config.type) {
     case "random": {
       const { density, variation } = config.config;
-      // Use an exponential curve so lower density values feel appropriately sparse
       const probability = Math.pow(density / 100, 2);
-      
-      layers.forEach((l, lIndex) => {
+
+      activeLayers.forEach((l, lIndex) => {
         for (let i = 0; i < l.pattern.length; i++) {
-          // Better pseudo-random uniform distribution
           const prng = Math.sin(lIndex * 13.37 + i * 9.11 + variation) * 10000;
           const rand = prng - Math.floor(prng);
-          
           if (rand < probability) {
             result[l.id][i] = 1;
           }
@@ -46,20 +50,19 @@ export function generateGridPatterns(
       });
       break;
     }
-    
+
     case "wave": {
-      const { width, speed } = config.config; // width 1-100, speed 1-100
+      const { width, speed } = config.config;
       const freq = speed / 10;
-      const spread = width / 100; // determines how thick the wave is
-      
+      const spread = width / 100;
+
       for (let step = 0; step < maxSteps; step++) {
         const normalizedY = (Math.sin((step / maxSteps) * Math.PI * 2 * freq) + 1) / 2;
-        const centerThrust = normalizedY * (numLayers - 1);
-        
-        layers.forEach((_, lIndex) => {
-          // If within the "width" proximity, activate
+        const centerThrust = normalizedY * (numActive - 1);
+
+        activeLayers.forEach((_, lIndex) => {
           const distance = Math.abs(lIndex - centerThrust);
-          if (distance <= spread * numLayers) {
+          if (distance <= spread * numActive) {
             setStep(lIndex, step, 1);
           }
         });
@@ -69,24 +72,21 @@ export function generateGridPatterns(
 
     case "mirror": {
       const { shape, amount, angle } = config.config;
-      
+
       for (let step = 0; step < maxSteps; step++) {
-        layers.forEach((_, lIndex) => {
-          // Normalize coordinates -0.5 to 0.5 for rotation math
+        activeLayers.forEach((_, lIndex) => {
           const nx = (step / (maxSteps - 1 || 1)) - 0.5;
-          const ny = (lIndex / (numLayers - 1 || 1)) - 0.5;
-          
-          // Apply rotation based on angle (0-100 mapped to 0-180 degrees)
+          const ny = (lIndex / (numActive - 1 || 1)) - 0.5;
+
           const rad = (angle / 100) * Math.PI;
           const cos = Math.cos(rad);
           const sin = Math.sin(rad);
           const rotatedX = nx * cos - ny * sin + 0.5;
           const rotatedY = nx * sin + ny * cos + 0.5;
-          
+
           let active = false;
-          // Scale amount to a usable thickness
           const thickness = 0.05 + (amount / 100) * 0.4;
-          
+
           switch (shape) {
             case "x":
               active = Math.abs(rotatedX - rotatedY) < thickness || Math.abs(rotatedX + rotatedY - 1) < thickness;
@@ -98,11 +98,11 @@ export function generateGridPatterns(
               active = Math.abs(rotatedX - 0.5) + Math.abs(rotatedY - 0.5) >= (0.5 - thickness) && Math.abs(rotatedX - 0.5) + Math.abs(rotatedY - 0.5) < 0.5;
               break;
             case "funnel":
-              active = Math.abs((Math.abs(rotatedY - 0.5) * 2) - rotatedX) < thickness || 
+              active = Math.abs((Math.abs(rotatedY - 0.5) * 2) - rotatedX) < thickness ||
                        Math.abs((Math.abs(rotatedY - 0.5) * 2) + rotatedX - 1) < thickness;
               break;
           }
-          
+
           if (active) setStep(lIndex, step, 1);
         });
       }
@@ -111,25 +111,24 @@ export function generateGridPatterns(
 
     case "sweep": {
       const { direction, slope, amount, repeat } = config.config;
-      const skew = slope / 50; 
-      const thickness = (amount / 100) * 0.3; 
-      
+      const skew = slope / 50;
+      const thickness = (amount / 100) * 0.3;
+
       for (let step = 0; step < maxSteps; step++) {
-        layers.forEach((_, lIndex) => {
+        activeLayers.forEach((_, lIndex) => {
           const normX = step / maxSteps;
-          const normY = lIndex / numLayers;
-          
+          const normY = lIndex / numActive;
+
           let sweepVal = 0;
           if (direction === "right") sweepVal = normX - normY * skew;
           if (direction === "left") sweepVal = (1 - normX) - normY * skew;
           if (direction === "down") sweepVal = normY - normX * skew;
           if (direction === "up") sweepVal = (1 - normY) - normX * skew;
-          
-          // If repeating, evaluate modulo 0.5. If not repeating, only evaluate the first wave cleanly centered around 0.5 or 0
-          const evalVal = repeat ? Math.abs(sweepVal % 0.5) : Math.abs(sweepVal - (skew/2));
-          
+
+          const evalVal = repeat ? Math.abs(sweepVal % 0.5) : Math.abs(sweepVal - (skew / 2));
+
           if (evalVal < thickness) {
-             setStep(lIndex, step, 1);
+            setStep(lIndex, step, 1);
           }
         });
       }
@@ -137,42 +136,42 @@ export function generateGridPatterns(
     }
 
     case "block": {
-      const { spacing, shuffle } = config.config;
-      const skip = Math.max(1, Math.floor((spacing / 100) * 16));
-      
-      // Determine the fps visually from the grid by peeking the layer config. 
-      // All layers share the same timeline duration, so fps = duration / pattern length
-      // Default to 60 as a fallback. We essentially want to cluster changes per "second" mathematically
-      // The store handles the 'sequence' data but here we only have layers
-      // Assuming typical 60fps timeline:
-      const framesPerSecond = 60;
-      let currentSecond = -1;
-      let startY = Math.floor(numLayers / 2) - 1;
+      // Beat-aligned vertical stacks
+      const { timing, amount, variation } = config.config;
 
-      for (let step = 0; step < maxSteps; step += skip) {
-        // Every second (60 frames), recalculate the Y shuffle to match the user request for 
-        // "every second shuffle on Y" for clean rows.
-        const secIndex = Math.floor(step / framesPerSecond);
-        
-        if (secIndex !== currentSecond) {
-            currentSecond = secIndex;
-            startY = Math.floor(numLayers / 2) - 1;
-            
-            if (shuffle > 0) {
-              const prng = Math.sin(secIndex * 1.123) * 10000;
-              const rand = prng - Math.floor(prng);
-              const shiftRange = Math.floor((shuffle / 100) * (numLayers - 1));
-              startY += Math.floor(rand * shiftRange) - Math.floor(shiftRange / 2);
-            }
-            startY = Math.max(0, Math.min(startY, numLayers - 2));
-        }
-        
-        // draw 2x2
-        setStep(startY, step, 1);
-        setStep(startY + 1, step, 1);
-        if (step + 1 < maxSteps) {
-          setStep(startY, step + 1, 1);
-          setStep(startY + 1, step + 1, 1);
+      // Infer fps from pattern length and typical duration
+      // Layers all share the same fps; derive it from pattern length assuming 8s default
+      // We use maxSteps directly: framesPerBeat = fps (1 beat per second)
+      // Since we don't have fps here, we compute beat boundaries from maxSteps and timing
+      // Assume the pattern length represents the full duration at 30fps:
+      // beat = maxSteps / durationSeconds, but we don't have duration.
+      // Best approach: treat 1 beat = 30 frames (matching grid's 4 cells/sec at 30fps = 1 beat/sec)
+      const framesPerBeat = 30;
+      const framesPerGroup =
+        timing === "quarter-beat" ? Math.round(framesPerBeat / 4) :
+        timing === "half-beat"   ? Math.round(framesPerBeat / 2) :
+                                   framesPerBeat; // "beat"
+
+      const stackHeight = Math.max(1, Math.round((amount / 100) * numActive));
+
+      for (let beatStart = 0; beatStart < maxSteps; beatStart += framesPerGroup) {
+        // Pick Y offset using seeded PRNG based on beat index and variation
+        const beatIndex = Math.floor(beatStart / framesPerGroup);
+        const prng = Math.sin(beatIndex * 7.391 + variation * 0.137) * 10000;
+        const rand = prng - Math.floor(prng);
+        const maxOffset = Math.max(0, numActive - stackHeight);
+        const yOffset = Math.floor(rand * (maxOffset + 1));
+
+        // Activate stackHeight consecutive layers starting at yOffset
+        for (let i = 0; i < stackHeight; i++) {
+          const lIndex = yOffset + i;
+          if (lIndex >= numActive) break;
+          const layer = activeLayers[lIndex];
+          // Fill the full group span
+          const endFrame = Math.min(beatStart + framesPerGroup, layer.pattern.length);
+          for (let f = beatStart; f < endFrame; f++) {
+            result[layer.id][f] = 1;
+          }
         }
       }
       break;
@@ -180,67 +179,79 @@ export function generateGridPatterns(
 
     case "chaser": {
       const { steps, stride, repeat } = config.config;
-      // Stride of 0 means skipX is 0, which would break loopCount/loopOffset if steps is >0, 
-      // but if steps is 0, loopCount breaks. Force minimums safely:
       const safeSteps = Math.max(1, steps);
       const skipX = Math.max(1, Math.floor((stride / 100) * 16));
-      
+
       const loopCount = repeat ? Math.ceil(maxSteps / (safeSteps * skipX)) : 1;
-      
+
       for (let loop = 0; loop < loopCount; loop++) {
-          let currentY = 0;
-          const loopOffset = loop * (safeSteps * skipX);
-          
-          for (let i = 0; i < safeSteps; i++) {
-            const stepX = loopOffset + (i * skipX);
-            if (stepX < maxSteps) {
-               setStep(currentY, stepX, 1);
-               currentY = (currentY + 1) % numLayers;
-            }
+        let currentY = 0;
+        const loopOffset = loop * (safeSteps * skipX);
+
+        for (let i = 0; i < safeSteps; i++) {
+          const stepX = loopOffset + (i * skipX);
+          if (stepX < maxSteps) {
+            setStep(currentY, stepX, 1);
+            currentY = (currentY + 1) % numActive;
           }
+        }
       }
       break;
     }
 
     case "shapes": {
-      const { shape, size, density } = config.config;
-      const shapeSize = Math.max(2, Math.floor((size / 100) * Math.min(numLayers, maxSteps / 2)));
-      const spacing = Math.max(shapeSize + 1, Math.floor((1 - density / 100) * maxSteps / 2) + shapeSize);
+      // Beat-aligned directional shapes (arrows, chevrons, lines, waves)
+      const { shape, period, width } = config.config;
 
-      const templates: Record<string, (x: number, y: number, r: number) => boolean> = {
-        circle: (x, y, r) => x * x + y * y <= r * r,
-        triangle: (x, y, r) => y >= -r && y <= r && Math.abs(x) <= (r - y) * 0.6,
-        square: (x, y, r) => Math.abs(x) <= r * 0.8 && Math.abs(y) <= r * 0.8,
-        star: (x, y, r) => {
-          const angle = Math.atan2(y, x);
-          const dist = Math.sqrt(x * x + y * y);
-          const spikes = 5;
-          const innerR = r * 0.4;
-          const outerR = r;
-          const a = ((angle + Math.PI * 2) % (Math.PI * 2 / spikes)) / (Math.PI * 2 / spikes);
-          const targetR = a < 0.5 ? innerR + (outerR - innerR) * (a * 2) : outerR - (outerR - innerR) * ((a - 0.5) * 2);
-          return dist <= targetR;
-        },
-        smiley: (x, y, r) => {
-          const d = Math.sqrt(x * x + y * y);
-          if (d > r && d <= r * 1.1) return true;
-          if (Math.sqrt((x - r * 0.35) ** 2 + (y + r * 0.25) ** 2) < r * 0.15) return true;
-          if (Math.sqrt((x + r * 0.35) ** 2 + (y + r * 0.25) ** 2) < r * 0.15) return true;
-          if (y > r * 0.1 && y < r * 0.5 && Math.abs(x) < r * 0.5 && Math.abs(Math.sqrt(x * x + (y - r * 0.1) ** 2) - r * 0.4) < r * 0.12) return true;
-          return false;
-        },
-      };
+      // 1 beat = 30 frames, period = 4 or 8 beats
+      const framesPerBeat = 30;
+      const framesPerCycle = period * framesPerBeat;
+      const bandWidth = Math.max(1, Math.round((width / 100) * numActive));
 
-      const testFn = templates[shape] || templates.circle;
-      const radius = shapeSize / 2;
+      for (let beatStart = 0; beatStart < maxSteps; beatStart += framesPerBeat) {
+        // Progress through the cycle (0 to 1)
+        const cycleFrame = beatStart % framesPerCycle;
+        const progress = cycleFrame / framesPerCycle; // 0..1 through cycle
 
-      for (let cx = Math.floor(shapeSize / 2); cx < maxSteps; cx += spacing) {
-        const cy = Math.floor(numLayers / 2);
-        for (let dy = -Math.ceil(radius); dy <= Math.ceil(radius); dy++) {
-          for (let dx = -Math.ceil(radius); dx <= Math.ceil(radius); dx++) {
-            if (testFn(dx, dy, radius)) {
-              setStep(cy + dy, cx + dx, 1);
-            }
+        let centerY: number;
+
+        switch (shape) {
+          case "arrow-up":
+            // Staircase: starts at bottom, climbs to top over the period
+            centerY = (numActive - 1) * (1 - progress);
+            break;
+          case "arrow-down":
+            // Staircase: starts at top, falls to bottom over the period
+            centerY = (numActive - 1) * progress;
+            break;
+          case "chevron": {
+            // V-shape: goes down first half, back up second half
+            const half = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+            centerY = (numActive - 1) * half;
+            break;
+          }
+          case "line":
+            // All layers at once — center band stays fixed
+            centerY = (numActive - 1) / 2;
+            break;
+          case "wave":
+            // Sinusoidal movement
+            centerY = ((Math.sin(progress * Math.PI * 2) + 1) / 2) * (numActive - 1);
+            break;
+          default:
+            centerY = (numActive - 1) / 2;
+        }
+
+        // Activate a band of `bandWidth` layers centred on centerY
+        const halfBand = (bandWidth - 1) / 2;
+        const layerStart = Math.max(0, Math.round(centerY - halfBand));
+        const layerEnd = Math.min(numActive - 1, Math.round(centerY + halfBand));
+
+        for (let lIndex = layerStart; lIndex <= layerEnd; lIndex++) {
+          const layer = activeLayers[lIndex];
+          const endFrame = Math.min(beatStart + framesPerBeat, layer.pattern.length);
+          for (let f = beatStart; f < endFrame; f++) {
+            result[layer.id][f] = 1;
           }
         }
       }
@@ -249,25 +260,19 @@ export function generateGridPatterns(
 
     case "ramp": {
       const { amount, direction } = config.config;
-      // A cleaner, simpler grid distribution
-      
       const probMax = amount / 100;
-      
+
       for (let step = 0; step < maxSteps; step++) {
         const normX = step / (maxSteps - 1 || 1);
         const rampProb = direction === "in" ? normX * probMax : (1 - normX) * probMax;
-        
-        layers.forEach((_, lIndex) => {
-           // We map the density smoothly across layers with a slight structural scatter
-           // instead of pure chaos, providing a visible ramp in structure
-           const threshold = (lIndex / numLayers) * 0.5 + 0.25;
-           
-           // Scatter randomly along the threshold mapping
-           const prng = Math.sin(lIndex * 0.5 + step * 0.1) * 10;
-           
-           if ((prng - Math.floor(prng)) * threshold < rampProb) {
-              setStep(lIndex, step, 1);
-           }
+
+        activeLayers.forEach((_, lIndex) => {
+          const threshold = (lIndex / numActive) * 0.5 + 0.25;
+          const prng = Math.sin(lIndex * 0.5 + step * 0.1) * 10;
+
+          if ((prng - Math.floor(prng)) * threshold < rampProb) {
+            setStep(lIndex, step, 1);
+          }
         });
       }
       break;
@@ -276,4 +281,3 @@ export function generateGridPatterns(
 
   return result;
 }
-

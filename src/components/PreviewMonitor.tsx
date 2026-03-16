@@ -74,6 +74,7 @@ export function PreviewMonitor() {
       if (currentSequence.lights.length === 0) return;
 
       for (const light of currentSequence.lights) {
+        if (light.muted) continue;
         // Lazy load images if they haven't been requested yet
         if (!imageCache.current.has(light.filePath)) {
           // Set an empty marker so we don't request it 60 times a second while loading

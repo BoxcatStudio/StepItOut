@@ -18,11 +18,17 @@ const GRID = {
 export function SequencerGrid() {
   const sequence = useSequencerStore(s => s.sequence);
   const selectedLayerId = useSequencerStore(s => s.selectedLayerId);
-  const setFrameTrigger = useSequencerStore(s => s.setFrameTrigger);
+  const setCellRange = useSequencerStore(s => s.setCellRange);
+  const toggleMute = useSequencerStore(s => s.toggleMute);
   const setSelectedLayer = useSequencerStore(s => s.setSelectedLayer);
   const clearAll = useSequencerStore(s => s.clearAll);
   const setGlobalControl = useSequencerStore(s => s.setGlobalControl);
   const commitUndoSnapshot = useSequencerStore(s => s.commitUndoSnapshot);
+  const groups = useSequencerStore(s => s.groups);
+  const selectedLayerIds = useSequencerStore(s => s.selectedLayerIds);
+  const toggleLayerMultiSelect = useSequencerStore(s => s.toggleLayerMultiSelect);
+  const createGroup = useSequencerStore(s => s.createGroup);
+  const removeLayerFromGroup = useSequencerStore(s => s.removeLayerFromGroup);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
@@ -30,6 +36,7 @@ export function SequencerGrid() {
   const isDragging = useRef(false);
   const dragValue = useRef<number>(0);
   const [pendingClear, setPendingClear] = useState<"all" | "patterns" | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -84,7 +91,7 @@ export function SequencerGrid() {
   };
 
   // Track which cell was last modified so we don't spam updates while dragging over it
-  const lastPaintedCell = useRef<{ layerId: string; startFrame: number } | null>(null);
+  const lastPaintedCell = useRef<{ layerId: string; startFrame: number; span: number } | null>(null);
 
   const getCellFromEvent = (e: React.PointerEvent) => {
     const container = containerRef.current;
@@ -120,7 +127,7 @@ export function SequencerGrid() {
 
     if (!layer) return null;
 
-    return { layerId: layer.id, startFrame, rawFrameIndex: hitFrame };
+    return { layerId: layer.id, startFrame, rawFrameIndex: hitFrame, span: getFrameSpanForCell(cellColumn) };
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -131,21 +138,24 @@ export function SequencerGrid() {
     isDragging.current = true;
     setSelectedLayer(hit.layerId);
     
-    // Check if what we clicked on was ALREADY active
+    // Check if what we clicked on was ALREADY active (check full cell span)
     const layerObj = sequence.lights.find(l => l.id === hit.layerId);
     if (!layerObj) return;
-    const currentlyActive = layerObj.pattern[hit.startFrame] !== 0;
+    let currentlyActive = false;
+    for (let f = hit.startFrame; f < Math.min(hit.startFrame + hit.span, layerObj.pattern.length); f++) {
+      if (layerObj.pattern[f]) { currentlyActive = true; break; }
+    }
 
-    // Shift inverses default behavior. Normally: 
+    // Shift inverses default behavior. Normally:
     // Click active space -> Erase
     // Click empty space -> Draw
     dragValue.current = e.shiftKey ? 0 : (currentlyActive ? 0 : 1);
-    
+
     commitUndoSnapshot();
 
-    // Apply immediately to the first cell clicked
-    setFrameTrigger(hit.layerId, hit.startFrame, dragValue.current);
-    lastPaintedCell.current = { layerId: hit.layerId, startFrame: hit.startFrame };
+    // Apply immediately to the first cell clicked (clears/sets entire span)
+    setCellRange(hit.layerId, hit.startFrame, hit.span, dragValue.current);
+    lastPaintedCell.current = { layerId: hit.layerId, startFrame: hit.startFrame, span: hit.span };
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -163,8 +173,8 @@ export function SequencerGrid() {
       return;
     }
 
-    setFrameTrigger(hit.layerId, hit.startFrame, dragValue.current);
-    lastPaintedCell.current = { layerId: hit.layerId, startFrame: hit.startFrame };
+    setCellRange(hit.layerId, hit.startFrame, hit.span, dragValue.current);
+    lastPaintedCell.current = { layerId: hit.layerId, startFrame: hit.startFrame, span: hit.span };
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -274,16 +284,32 @@ export function SequencerGrid() {
 
             {sequence.lights.map((light) => {
               const isSelected = selectedLayerId === light.id;
+              const isMultiSelected = selectedLayerIds.includes(light.id);
+              const layerGroup = groups.find(g => g.layerIds.includes(light.id));
 
               return (
-                <div 
-                  key={light.id} 
+                <div
+                  key={light.id}
                   className="flex w-full group/track relative border-b border-[#0a0a0a]"
                   style={{ height: GRID.ROW_HEIGHT, width: GRID.ORIGIN_X + timelineActualWidth }}
                 >
-                  
-                  <div className={`shrink-0 sticky left-0 z-30 border-r border-[#0a0a0a] transition-colors ${isSelected ? "bg-[#252525]" : "bg-[#1e1e1e]"}`} style={{ width: GRID.ORIGIN_X }}>
-                    <LayerRow light={light} isSelected={isSelected} rowHeight={GRID.ROW_HEIGHT} />
+
+                  <div
+                    className={`shrink-0 sticky left-0 z-30 border-r border-[#0a0a0a] transition-colors ${isSelected ? "bg-[#252525]" : "bg-[#1e1e1e]"} ${light.muted ? "opacity-40 grayscale" : ""} ${isMultiSelected ? "ring-1 ring-inset ring-blue-400/40" : ""}`}
+                    style={{ width: GRID.ORIGIN_X, borderLeft: layerGroup ? `3px solid ${layerGroup.color}` : "3px solid transparent" }}
+                    onClick={(e) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        e.stopPropagation();
+                        toggleLayerMultiSelect(light.id);
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setContextMenu({ x: e.clientX, y: e.clientY, layerId: light.id });
+                    }}
+                  >
+                    <LayerRow light={light} isSelected={isSelected} rowHeight={GRID.ROW_HEIGHT} onToggleMute={() => toggleMute(light.id)} />
                   </div>
 
                   <div 
@@ -327,13 +353,17 @@ export function SequencerGrid() {
                            )}
                            
                            {/* Active Cell Object */}
-                           <div 
+                           <div
                              className={`w-full h-full rounded-sm transition-all duration-75 overflow-hidden relative z-10 ${
-                               isActive ? "bg-[#e89f41] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]" : "bg-white/5 hover:bg-white/10 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.5)]"
+                               isActive
+                                 ? light.muted
+                                   ? "bg-white/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
+                                   : "bg-[#e89f41] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
+                                 : "bg-white/5 hover:bg-white/10 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.5)]"
                              }`}
                            >
-                              {isActive && (
-                                 <svg 
+                              {isActive && !light.muted && (
+                                 <svg
                                    className="absolute inset-[3px] pointer-events-none opacity-60 z-20" 
                                    preserveAspectRatio="none" 
                                    viewBox="0 0 100 100"
@@ -361,6 +391,76 @@ export function SequencerGrid() {
 
         </div>
       </div>
+
+      {/* Right-click context menu for grouping */}
+      {contextMenu && createPortal(
+        <>
+          <div className="fixed inset-0 z-[199]" onClick={() => setContextMenu(null)} onContextMenu={e => { e.preventDefault(); setContextMenu(null); }} />
+          <div
+            className="fixed z-[200] bg-[#1a1a1a] border border-white/10 rounded shadow-2xl py-1 min-w-[180px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            {(() => {
+              const allToGroup = selectedLayerIds.includes(contextMenu.layerId)
+                ? selectedLayerIds
+                : [...selectedLayerIds, contextMenu.layerId];
+              const inGroup = groups.find(g => g.layerIds.includes(contextMenu.layerId));
+              return (
+                <>
+                  {allToGroup.length >= 2 && (
+                    <button
+                      onClick={() => {
+                        createGroup(`Group ${groups.length + 1}`, allToGroup);
+                        setContextMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white/70 hover:bg-white/5 hover:text-white transition-colors"
+                    >
+                      Group {allToGroup.length} layers
+                    </button>
+                  )}
+                  {allToGroup.length < 2 && groups.length > 0 && (
+                    <>
+                      <div className="px-3 py-1 text-[8px] text-white/20 uppercase tracking-wider">Add to group</div>
+                      {groups.map(g => (
+                        <button
+                          key={g.id}
+                          onClick={() => {
+                            if (!g.layerIds.includes(contextMenu.layerId)) {
+                              useSequencerStore.setState(s => ({
+                                groups: s.groups.map(gr => gr.id === g.id ? { ...gr, layerIds: [...gr.layerIds, contextMenu.layerId] } : gr)
+                              }));
+                            }
+                            setContextMenu(null);
+                          }}
+                          className="w-full text-left px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white/70 hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"
+                        >
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: g.color }} />
+                          {g.name}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {inGroup && (
+                    <button
+                      onClick={() => {
+                        removeLayerFromGroup(contextMenu.layerId);
+                        setContextMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white/40 hover:bg-white/5 hover:text-red-400 transition-colors"
+                    >
+                      Remove from {inGroup.name}
+                    </button>
+                  )}
+                  {allToGroup.length < 2 && groups.length === 0 && (
+                    <div className="px-3 py-2 text-[8px] text-white/20">Ctrl+click more layers to group</div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </>,
+        document.body
+      )}
 
       {/* Clear Confirmation Modal — portaled to body to escape overflow clipping */}
       {pendingClear && createPortal(

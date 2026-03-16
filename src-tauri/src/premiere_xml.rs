@@ -186,6 +186,7 @@ pub fn generate_fcp_xml(seq: &StepSeqFile) -> Result<String, String> {
                         decay: layer_bank.decay.unwrap_or(light.decay),
                         intensity: light.intensity,
                         curve: light.curve.clone(),
+                        muted: light.muted,
                     }
                 } else {
                     light.clone()
@@ -253,33 +254,34 @@ fn write_sequence(
     xml.push_str("              </generatoritem>\n");
     xml.push_str("            </track>\n");
 
-    // Light layer tracks (V2+)
+    // Light layer tracks (V2+): group consecutive non-zero frames into clip runs
     for (i, light) in lights.iter().enumerate() {
         let file_id = format!("file-{}", i + 1);
         let clip_id = format!("masterclip-{}", i + 1);
 
         let total = total_frames as u32;
-        let steps = steps_for_division(&light.division, total);
-        if steps == 0 {
-            continue;
-        }
-        let step_duration = total / steps;
-        if step_duration == 0 {
-            continue;
-        }
+        if total == 0 || light.pattern.is_empty() { continue; }
 
         xml.push_str("            <track>\n");
 
         let mut clip_counter = 0u32;
-        for (step_idx, &p) in light.pattern.iter().enumerate() {
-            if p == 0 {
+        let pat_len = light.pattern.len();
+        let mut fi = 0usize;
+
+        while fi < pat_len {
+            if light.pattern[fi] == 0 {
+                fi += 1;
                 continue;
             }
+            // Found start of a run of active frames
+            let run_start = fi as u32;
+            while fi < pat_len && light.pattern[fi] != 0 {
+                fi += 1;
+            }
+            let run_end = (fi as u32).min(total);
+            let clip_len = run_end - run_start;
+            if clip_len == 0 { continue; }
             clip_counter += 1;
-
-            let start_frame = (step_idx as u32 * step_duration) % total;
-            let end_frame = (start_frame + step_duration).min(total);
-            let clip_len = end_frame - start_frame;
 
             let item_id = format!("{}-clip-{}-{}", escape_xml(&seq_id), i + 1, clip_counter);
 
@@ -290,15 +292,15 @@ fn write_sequence(
             xml.push_str(&format!("                  <timebase>{}</timebase>\n", timebase));
             xml.push_str("                  <ntsc>FALSE</ntsc>\n");
             xml.push_str("                </rate>\n");
-            xml.push_str(&format!("                <start>{}</start>\n", start_frame));
-            xml.push_str(&format!("                <end>{}</end>\n", end_frame));
+            xml.push_str(&format!("                <start>{}</start>\n", run_start));
+            xml.push_str(&format!("                <end>{}</end>\n", run_end));
             xml.push_str("                <in>0</in>\n");
             xml.push_str(&format!("                <out>{}</out>\n", clip_len));
             xml.push_str(&format!("                <masterclipid>{}</masterclipid>\n", clip_id));
             xml.push_str(&format!("                <file id=\"{}\"/>\n", file_id));
             xml.push_str("                <compositemode>add</compositemode>\n");
 
-            // Opacity envelope: attack → hold → decay
+            // Opacity envelope: attack → hold → decay (in frames, relative to clip start)
             let attack = light.attack.min(clip_len);
             let decay = light.decay.min(clip_len);
             let intensity_pct = (light.intensity * 100.0).min(100.0);
@@ -451,6 +453,7 @@ pub fn generate_fcp_xml_matte(seq: &StepSeqFile) -> Result<String, String> {
                         decay: layer_bank.decay.unwrap_or(light.decay),
                         intensity: light.intensity,
                         curve: light.curve.clone(),
+                        muted: light.muted,
                     }
                 } else {
                     light.clone()
@@ -576,31 +579,27 @@ fn write_matte_sequence(
 
         // Opacity keyframes on the white solid
         let total = total_frames as u32;
-        let steps = steps_for_division(&light.division, total);
-        if steps > 0 {
-            let step_duration = total / steps;
-            if step_duration > 0 {
-                let keyframes = generate_matte_keyframes(light, total, steps, step_duration);
-                if !keyframes.is_empty() {
-                    xml.push_str("                <filter>\n");
-                    xml.push_str("                  <effect>\n");
-                    xml.push_str("                    <name>Opacity</name>\n");
-                    xml.push_str("                    <effectid>opacity</effectid>\n");
-                    xml.push_str("                    <effecttype>filter</effecttype>\n");
-                    xml.push_str("                    <mediatype>video</mediatype>\n");
-                    xml.push_str("                    <parameter>\n");
-                    xml.push_str("                      <parameterid>opacity</parameterid>\n");
-                    xml.push_str("                      <name>Opacity</name>\n");
-                    for kf in &keyframes {
-                        xml.push_str("                      <keyframe>\n");
-                        xml.push_str(&format!("                        <when>{}</when>\n", kf.frame));
-                        xml.push_str(&format!("                        <value>{:.1}</value>\n", kf.opacity));
-                        xml.push_str("                      </keyframe>\n");
-                    }
-                    xml.push_str("                    </parameter>\n");
-                    xml.push_str("                  </effect>\n");
-                    xml.push_str("                </filter>\n");
+        if total > 0 && !light.pattern.is_empty() {
+            let keyframes = generate_matte_keyframes(light, total);
+            if !keyframes.is_empty() {
+                xml.push_str("                <filter>\n");
+                xml.push_str("                  <effect>\n");
+                xml.push_str("                    <name>Opacity</name>\n");
+                xml.push_str("                    <effectid>opacity</effectid>\n");
+                xml.push_str("                    <effecttype>filter</effecttype>\n");
+                xml.push_str("                    <mediatype>video</mediatype>\n");
+                xml.push_str("                    <parameter>\n");
+                xml.push_str("                      <parameterid>opacity</parameterid>\n");
+                xml.push_str("                      <name>Opacity</name>\n");
+                for kf in &keyframes {
+                    xml.push_str("                      <keyframe>\n");
+                    xml.push_str(&format!("                        <when>{}</when>\n", kf.frame));
+                    xml.push_str(&format!("                        <value>{:.1}</value>\n", kf.opacity));
+                    xml.push_str("                      </keyframe>\n");
                 }
+                xml.push_str("                    </parameter>\n");
+                xml.push_str("                  </effect>\n");
+                xml.push_str("                </filter>\n");
             }
         }
 
@@ -618,80 +617,68 @@ struct OpacityKeyframe {
     opacity: f64,
 }
 
-fn generate_matte_keyframes(light: &StepSeqLight, total_frames: u32, _steps: u32, step_duration: u32) -> Vec<OpacityKeyframe> {
+fn generate_matte_keyframes(light: &StepSeqLight, total_frames: u32) -> Vec<OpacityKeyframe> {
     let mut keyframes = Vec::new();
     let intensity_pct = (light.intensity * 100.0).min(100.0);
+    let pat_len = light.pattern.len();
 
-    for (step_idx, &p) in light.pattern.iter().enumerate() {
-        let start = (step_idx as u32 * step_duration) % total_frames;
-        let end = (start + step_duration).min(total_frames);
-        let len = end - start;
+    // Seed with 0 at frame 0
+    keyframes.push(OpacityKeyframe { frame: 0, opacity: 0.0 });
 
-        if p == 0 {
-            // Ensure this step is at 0
-            if keyframes.is_empty() || keyframes.last().map(|k: &OpacityKeyframe| k.opacity).unwrap_or(0.0) != 0.0 {
-                keyframes.push(OpacityKeyframe { frame: start as i64, opacity: 0.0 });
+    let mut fi = 0usize;
+    while fi < pat_len {
+        if light.pattern[fi] == 0 {
+            // Drop to 0 if previous was non-zero
+            let frame = fi as i64;
+            if keyframes.last().map(|k: &OpacityKeyframe| k.opacity).unwrap_or(0.0) != 0.0 {
+                keyframes.push(OpacityKeyframe { frame, opacity: 0.0 });
             }
+            fi += 1;
             continue;
         }
 
-        let attack = light.attack.min(len);
-        let decay = light.decay.min(len);
+        // Start of a run of active frames
+        let run_start = fi as u32;
+        while fi < pat_len && light.pattern[fi] != 0 {
+            fi += 1;
+        }
+        let run_end = (fi as u32).min(total_frames);
+        let clip_len = run_end - run_start;
+        if clip_len == 0 { continue; }
 
-        // Ensure 0 at start of step (edge from previous)
-        if keyframes.last().map(|k| k.opacity).unwrap_or(0.0) != 0.0 || keyframes.is_empty() {
-            keyframes.push(OpacityKeyframe { frame: start as i64, opacity: 0.0 });
+        let attack = light.attack.min(clip_len);
+        let decay = light.decay.min(clip_len);
+
+        // Ensure 0 at run start if not already
+        if keyframes.last().map(|k| k.opacity).unwrap_or(0.0) != 0.0 {
+            keyframes.push(OpacityKeyframe { frame: run_start as i64, opacity: 0.0 });
         }
 
         if attack > 0 {
-            keyframes.push(OpacityKeyframe { frame: (start + attack) as i64, opacity: intensity_pct });
+            keyframes.push(OpacityKeyframe { frame: (run_start + attack) as i64, opacity: intensity_pct });
         } else {
-            // Jump to intensity immediately
-            keyframes.push(OpacityKeyframe { frame: start as i64, opacity: intensity_pct });
+            keyframes.push(OpacityKeyframe { frame: run_start as i64, opacity: intensity_pct });
         }
 
         if decay > 0 {
-            let decay_start = end.saturating_sub(decay);
-            if decay_start > start + attack {
+            let decay_start = run_end.saturating_sub(decay);
+            if decay_start > run_start + attack {
                 keyframes.push(OpacityKeyframe { frame: decay_start as i64, opacity: intensity_pct });
             }
-            keyframes.push(OpacityKeyframe { frame: end as i64, opacity: 0.0 });
+            keyframes.push(OpacityKeyframe { frame: run_end as i64, opacity: 0.0 });
         } else {
-            // Hold to end of step, then drop
-            keyframes.push(OpacityKeyframe { frame: end as i64, opacity: 0.0 });
+            keyframes.push(OpacityKeyframe { frame: run_end as i64, opacity: 0.0 });
         }
     }
 
-    // Ensure final frame
-    if keyframes.last().map(|k| k.frame).unwrap_or(-1) < (total_frames as i64 - 1) {
-        keyframes.push(OpacityKeyframe { frame: total_frames as i64 - 1, opacity: 0.0 });
+    // Ensure final frame is 0
+    if keyframes.last().map(|k| k.frame).unwrap_or(-1) < total_frames as i64 {
+        keyframes.push(OpacityKeyframe { frame: total_frames as i64, opacity: 0.0 });
     }
 
     keyframes
 }
 
-fn steps_for_division(division: &str, total_frames: u32) -> u32 {
-    match division {
-        "1" => total_frames,
-        "2" => total_frames / 2,
-        "5" => total_frames / 5,
-        "10" => total_frames / 10,
-        "15" => total_frames / 15,
-        "30" => total_frames / 30,
-        "1/4" => 4,
-        "1/8" => 8,
-        "1/16" => 16,
-        "1/32" => 32,
-        "frame" => total_frames,
-        _ => {
-            if let Ok(n) = division.parse::<u32>() {
-                if n > 0 { total_frames / n } else { 8 }
-            } else {
-                8
-            }
-        }
-    }
-}
 
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
