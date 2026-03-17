@@ -43,39 +43,42 @@ function buildEnvelopes(
   }
 
   const envelopes: Envelope[] = [];
-  const totalFrames = getTotalFrames(durationSeconds, fps);
+  void getTotalFrames(durationSeconds, fps); // keep signature stable
   const patLen = layer.pattern.length;
 
-  for (let i = 0; i < patLen; i++) {
-    if (layer.pattern[i] === 0) continue;
+  // Group consecutive non-zero frames into runs, then create ONE envelope per run.
+  let i = 0;
+  while (i < patLen) {
+    if (layer.pattern[i] === 0) { i++; continue; }
 
-    // Find distance to the next active frame (including wrap-around)
-    let nextStepDistFrame = totalFrames;
-    for (let j = 1; j <= patLen; j++) {
-      const idx = (i + j) % patLen;
-      if (layer.pattern[idx] !== 0) {
-        let nextFrame = idx;
-        if (j > 0 && idx <= i) {
-          nextFrame += totalFrames; // Wrapped
-        }
-        nextStepDistFrame = nextFrame - i;
-        break;
-      }
+    // Found start of a run
+    const runStart = i;
+    while (i < patLen && layer.pattern[i] !== 0) { i++; }
+    const runLen = i - runStart;
+
+    // For cells ≤ 3 frames: no attack/decay — first frame at 100% (strobe mode)
+    if (runLen <= 3) {
+      envelopes.push({
+        startFrame: runStart,
+        attackFrames: 0,
+        holdFrames: runLen,
+        decayFrames: 0,
+        intensity: 1,
+        curve: layer.curve,
+      });
+      continue;
     }
 
-    const startFrame = i;
-    const attackFrames = layer.attack;
-    const holdFrames = 1; // Exactly 1 frame impulse by default
-    
-    // Decay curve is clipped if it overlaps into the next hit
-    const overlapLimit = Math.max(0, nextStepDistFrame - attackFrames - holdFrames);
-    const decayFrames = Math.floor(Math.min(layer.decay, overlapLimit));
+    // For longer runs: apply attack/decay within the run boundaries
+    const attack = Math.min(layer.attack, runLen - 1);
+    const decay = Math.min(layer.decay, Math.max(0, runLen - attack - 1));
+    const hold = Math.max(1, runLen - attack - decay);
 
     envelopes.push({
-      startFrame,
-      attackFrames,
-      holdFrames,
-      decayFrames,
+      startFrame: runStart,
+      attackFrames: attack,
+      holdFrames: hold,
+      decayFrames: decay,
       intensity: 1,
       curve: layer.curve,
     });

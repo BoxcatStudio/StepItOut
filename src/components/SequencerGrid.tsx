@@ -3,9 +3,11 @@ import { LayerRow, Knob } from "./LayerRow";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { getTotalFrames, getCellLayout, getCellStartFrames, getCellIndexForFrame } from "../engine/frameMath";
+import { DIVISIONS } from "../types";
+import type { Division } from "../types";
 
 const GRID = {
-  ORIGIN_X: 320,       // Left sidebar width
+  ORIGIN_X: 380,       // Left sidebar width (widened for division buttons)
   ORIGIN_Y: 56,        // Timeline header height
   ROW_HEIGHT: 56,      // Track row height
   CELL_GAP: 4,         // Space between cells
@@ -249,6 +251,30 @@ export function SequencerGrid() {
 
                 <div className="h-8 w-px bg-white/5 shrink-0" />
 
+                {/* Division Selector — sets all layers in sequence */}
+                <div className="flex items-center gap-[3px] px-2 shrink-0">
+                  <span className="text-[7px] text-white/20 uppercase tracking-wider font-bold mr-1">DIV</span>
+                  {DIVISIONS.map((d) => {
+                    const currentDiv = sequence.lights[0]?.division ?? 4;
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => setGlobalControl("division", d as Division)}
+                        className={`min-w-[22px] h-[22px] flex items-center justify-center text-[9px] font-bold rounded transition-colors ${
+                          currentDiv === d
+                            ? "bg-[#e89f41] text-black shadow-[0_0_6px_rgba(232,159,65,0.5)]"
+                            : "bg-white/5 text-white/30 hover:bg-white/10 hover:text-white/60"
+                        }`}
+                        title={`${d} steps/sec`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="h-8 w-px bg-white/5 shrink-0" />
+
                 {/* Spacer to push content right */}
                 <div className="flex-1" />
 
@@ -399,7 +425,10 @@ export function SequencerGrid() {
                                    style={{ width: 'calc(100% - 6px)', height: 'calc(100% - 6px)' }}
                                  >
                                    <path
-                                     d={`M 0 100 L ${Math.min(100, (light.attack / span) * 100)} 0 L ${Math.min(100, ((light.attack + Math.max(0, span - light.attack - light.decay)) / span) * 100)} 0 L 100 100`}
+                                     d={span <= 3
+                                       ? "M 0 0 L 100 0"  // Flat line at top — no envelope for ≤3f cells
+                                       : `M 0 100 L ${Math.min(100, (light.attack / span) * 100)} 0 L ${Math.min(100, ((light.attack + Math.max(0, span - light.attack - light.decay)) / span) * 100)} 0 L 100 100`
+                                     }
                                      fill="none"
                                      stroke="white"
                                      strokeWidth="2"

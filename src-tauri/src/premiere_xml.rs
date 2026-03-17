@@ -303,8 +303,9 @@ fn write_sequence(
             xml.push_str("                <compositemode>add</compositemode>\n");
 
             // Opacity envelope: attack → hold → decay (in frames, relative to clip start)
-            let attack = light.attack.min(clip_len);
-            let decay = light.decay.min(clip_len);
+            // For clips ≤ 3 frames: no attack/decay — first frame must be 100% for strobes
+            let attack = if clip_len <= 3 { 0 } else { light.attack.min(clip_len) };
+            let decay = if clip_len <= 3 { 0 } else { light.decay.min(clip_len) };
             let intensity_pct = (light.intensity * 100.0).min(100.0);
             let needs_envelope = attack > 0 || decay > 0 || intensity_pct < 100.0;
 
@@ -650,8 +651,9 @@ fn generate_matte_keyframes(light: &StepSeqLight, total_frames: u32) -> Vec<Opac
         let clip_len = run_end - run_start;
         if clip_len == 0 { continue; }
 
-        let attack = light.attack.min(clip_len);
-        let decay = light.decay.min(clip_len);
+        // For clips ≤ 3 frames: no attack/decay — first frame must be 100% for strobes
+        let attack = if clip_len <= 3 { 0 } else { light.attack.min(clip_len) };
+        let decay = if clip_len <= 3 { 0 } else { light.decay.min(clip_len) };
 
         // Ensure 0 at run start if not already
         if keyframes.last().map(|k| k.opacity).unwrap_or(0.0) != 0.0 {

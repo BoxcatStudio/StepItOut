@@ -187,8 +187,8 @@ export function LayerRow(props: LayerRowProps) {
 
         <div className="h-8 w-px bg-white/5 shrink-0" />
 
-        {/* Division Selector */}
-        <div className="flex items-center gap-[2px] px-1.5 shrink-0">
+        {/* Per-Layer Division Selector */}
+        <div className="flex items-center gap-[3px] px-1.5 shrink-0">
           {DIVISIONS.map((d) => (
             <button
               key={d}
@@ -196,7 +196,7 @@ export function LayerRow(props: LayerRowProps) {
                 e.stopPropagation();
                 useSequencerStore.getState().setLayerDivision(light.id, d as Division);
               }}
-              className={`px-[3px] py-[1px] text-[7px] font-bold rounded transition-colors leading-tight ${
+              className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded transition-colors ${
                 light.division === d
                   ? "bg-[#e89f41] text-black shadow-[0_0_4px_rgba(232,159,65,0.4)]"
                   : "bg-white/5 text-white/30 hover:bg-white/10 hover:text-white/50"
