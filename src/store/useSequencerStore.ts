@@ -22,7 +22,7 @@ function createDefaultLayer(name: string, filePath: string): LightLayer {
     id: generateId(),
     name,
     filePath,
-    division: 5,
+    division: 4,
     pattern: [],
     attack: 2,
     decay: 6,
@@ -98,6 +98,8 @@ interface SequencerActions {
   switchBankSlot: (slotIndex: number) => void;
   clearAll: (shiftKey: boolean) => void;
   debugPopulateLayers: () => void;
+  setLayerDivision: (layerId: string, division: Division) => void;
+  setGroupDivision: (groupId: string, division: Division) => void;
   commitUndoSnapshot: () => void;
   undo: () => void;
   redo: () => void;
@@ -126,6 +128,30 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
     future: [],
 
     setProjectName: (name) => set({ projectName: name }),
+
+    setLayerDivision: (layerId, division) =>
+      set((state) => ({
+        sequence: {
+          ...state.sequence,
+          lights: state.sequence.lights.map((l) =>
+            l.id === layerId ? { ...l, division } : l
+          ),
+        },
+      })),
+
+    setGroupDivision: (groupId, division) =>
+      set((state) => {
+        const group = state.groups.find(g => g.id === groupId);
+        if (!group) return state;
+        return {
+          sequence: {
+            ...state.sequence,
+            lights: state.sequence.lights.map((l) =>
+              group.layerIds.includes(l.id) ? { ...l, division } : l
+            ),
+          },
+        };
+      }),
 
     commitUndoSnapshot: () => set((state) => {
       // Targeted structural sharing: only deep-clone the active sequence memory.
@@ -426,7 +452,7 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
           }
         }
 
-        const generatedPatterns = generateGridPatterns(config, targetLayers);
+        const generatedPatterns = generateGridPatterns(config, targetLayers, state.sequence.fps);
 
         return {
           sequence: {
@@ -468,7 +494,7 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
       const newLights = Array.from({ length: 8 }).map((_, i) => {
         const layer = createDefaultLayer(`test_clip_${i + 1}`, `/test_clip_${i + 1}.png`);
         layer.pattern = new Array(frames).fill(0);
-        layer.division = 5;
+        layer.division = 4;
         // Inject a unique sparse placeholder logic
         for (let f = 0; f < frames; f += (15 + i * 5)) {
           if (f < frames) layer.pattern[f] = 1;

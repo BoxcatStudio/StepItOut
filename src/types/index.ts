@@ -1,6 +1,8 @@
 // Bars/BeatsPerBar removed in favor of strict duration + BPM
 
-export type Division = 1 | 2 | 5 | 10 | 15 | 30;
+export type Division = 1 | 2 | 4 | 8 | 16 | 30;
+
+export const DIVISIONS: readonly Division[] = [1, 2, 4, 8, 16, 30] as const;
 
 export type CurvePreset =
   | "pulse"

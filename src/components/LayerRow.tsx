@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { useSequencerStore } from "../store/useSequencerStore";
 import { getOpacityAtFrame } from "../engine/envelope";
 import { LayerThumbnail } from "./LayerThumbnail";
-import type { LightLayer } from "../types";
+import type { LightLayer, Division } from "../types";
+import { DIVISIONS } from "../types";
 
 interface LayerRowProps {
   light: LightLayer;
@@ -185,6 +186,27 @@ export function LayerRow(props: LayerRowProps) {
         
 
         <div className="h-8 w-px bg-white/5 shrink-0" />
+
+        {/* Division Selector */}
+        <div className="flex items-center gap-[2px] px-1.5 shrink-0">
+          {DIVISIONS.map((d) => (
+            <button
+              key={d}
+              onClick={(e) => {
+                e.stopPropagation();
+                useSequencerStore.getState().setLayerDivision(light.id, d as Division);
+              }}
+              className={`px-[3px] py-[1px] text-[7px] font-bold rounded transition-colors leading-tight ${
+                light.division === d
+                  ? "bg-[#e89f41] text-black shadow-[0_0_4px_rgba(232,159,65,0.4)]"
+                  : "bg-white/5 text-white/30 hover:bg-white/10 hover:text-white/50"
+              }`}
+              title={`${d} steps/sec`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
 
         {/* Spacer to push content right */}
         <div className="flex-1" />

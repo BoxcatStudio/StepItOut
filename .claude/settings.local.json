@@ -30,7 +30,12 @@
       "Bash(grep -v \"node_modules\\\\|target\\\\|\\\\.git\\\\|cargo\\\\|Adobe\" find /c/Users/Lexy -maxdepth 3 -name stepitout*)",
       "Bash(find 'C:\\\\Users\\\\Lexy\\\\Documents\\\\Software Dev\\\\Step it out' -type f -name *update* -o -name *Update*)",
       "WebFetch(domain:github.com)",
-      "Bash(xargs gh:*)"
+      "Bash(xargs gh:*)",
+      "Bash(curl -sI \"https://github.com/BoxcatStudio/StepItOut/releases/latest/download/latest.json\")",
+      "Bash(curl -sIL \"https://github.com/BoxcatStudio/StepItOut/releases/latest/download/latest.json\")",
+      "Bash(curl -sIL \"https://github.com/BoxcatStudio/StepItOut/releases/download/v0.0.19/latest.json\")",
+      "Bash(gh repo:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

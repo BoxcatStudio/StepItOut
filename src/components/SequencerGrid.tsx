@@ -1,8 +1,8 @@
 import { useSequencerStore } from "../store/useSequencerStore";
 import { LayerRow, Knob } from "./LayerRow";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { getTotalFrames } from "../engine/frameMath";
+import { getTotalFrames, getCellLayout, getCellStartFrames, getCellIndexForFrame } from "../engine/frameMath";
 
 const GRID = {
   ORIGIN_X: 320,       // Left sidebar width
@@ -11,8 +11,6 @@ const GRID = {
   CELL_GAP: 4,         // Space between cells
   CELL_Y_PADDING: 6,   // Vertical padding from top/bottom of track
   FPS: 30,             // Locked sequence FPS
-  BLOCKS_PER_SEC: [0, 7, 14, 21], // Frame starts
-  BLOCKS_SPAN:    [7, 7, 7, 9],   // Frame lengths
 };
 
 export function SequencerGrid() {
@@ -29,7 +27,7 @@ export function SequencerGrid() {
   const toggleLayerMultiSelect = useSequencerStore(s => s.toggleLayerMultiSelect);
   const createGroup = useSequencerStore(s => s.createGroup);
   const removeLayerFromGroup = useSequencerStore(s => s.removeLayerFromGroup);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(1000); // Fallback
@@ -50,15 +48,37 @@ export function SequencerGrid() {
   }, []);
 
   const totalFrames = getTotalFrames(sequence.durationSeconds, sequence.fps);
-  
+
   // Viewport calculation constraints: 8 seconds exactly fills the visible track width
-  const trackViewportWidth = Math.max(100, viewportWidth - GRID.ORIGIN_X); 
+  const trackViewportWidth = Math.max(100, viewportWidth - GRID.ORIGIN_X);
   const timelineActualWidth = trackViewportWidth * (sequence.durationSeconds / 8);
-  const numCells = Math.ceil((totalFrames / sequence.fps) * 4);
-  
+
   // Shared geometry values for exact hit detection and rendering
   const framesPer8Sec = 8 * sequence.fps;
   const pixelsPerFrame = trackViewportWidth / framesPer8Sec;
+
+  // Precompute cell layouts per unique division value (memoized)
+  const divisionLayouts = useMemo(() => {
+    const cache = new Map<number, { layout: number[]; starts: number[] }>();
+    for (const light of sequence.lights) {
+      if (!cache.has(light.division)) {
+        const layout = getCellLayout(sequence.fps, light.division);
+        const starts = getCellStartFrames(layout);
+        cache.set(light.division, { layout, starts });
+      }
+    }
+    // Always have div=4 for the timeline header
+    if (!cache.has(4)) {
+      const layout = getCellLayout(sequence.fps, 4);
+      const starts = getCellStartFrames(layout);
+      cache.set(4, { layout, starts });
+    }
+    return cache;
+  }, [sequence.fps, sequence.lights.map(l => l.division).join(",")]);
+
+  // Header uses division=4 for second/half markers
+  const headerLayout = divisionLayouts.get(4)!;
+  const headerNumCells = 4 * sequence.durationSeconds;
 
   // Bypassing React renders for the playhead by updating its DOM ref directly
   useEffect(() => {
@@ -70,7 +90,7 @@ export function SequencerGrid() {
          const currFps = useSequencerStore.getState().sequence.fps;
          const currTotalFrames = Math.max(1, Math.floor(dur * currFps));
          const progress = frame / currTotalFrames;
-         
+
          const leftPos = GRID.ORIGIN_X + (progress * timelineActualWidth) - 2;
          playheadRef.current.style.left = `${leftPos}px`;
       }
@@ -80,14 +100,17 @@ export function SequencerGrid() {
     return () => cancelAnimationFrame(animFrame);
   }, [timelineActualWidth]);
 
-  const getStartFrameForCell = (cellIdx: number) => {
-    const seconds = Math.floor(cellIdx / 4);
-    const blockIndex = cellIdx % 4;
-    return (seconds * sequence.fps) + GRID.BLOCKS_PER_SEC[blockIndex];
-  };
-
-  const getFrameSpanForCell = (cellIdx: number) => {
-    return GRID.BLOCKS_SPAN[cellIdx % 4];
+  // Get the start frame and span for a cell index given a division's layout
+  const getCellGeometry = (cellIdx: number, division: number) => {
+    const cached = divisionLayouts.get(division);
+    if (!cached) return { startFrame: 0, span: 1 };
+    const { layout, starts } = cached;
+    const cellsPerSec = layout.length;
+    const sec = Math.floor(cellIdx / cellsPerSec);
+    const cellInSec = cellIdx % cellsPerSec;
+    const startFrame = sec * sequence.fps + starts[cellInSec];
+    const span = layout[cellInSec];
+    return { startFrame, span };
   };
 
   // Track which cell was last modified so we don't spam updates while dragging over it
@@ -96,27 +119,15 @@ export function SequencerGrid() {
   const getCellFromEvent = (e: React.PointerEvent) => {
     const container = containerRef.current;
     if (!container) return null;
-    
+
     // Use container metrics for scroll-aware absolute calculation
     const rect = container.getBoundingClientRect();
-    
+
     // X Math: find the exact frame under the cursor
     const localX = (e.clientX - rect.left) + container.scrollLeft - GRID.ORIGIN_X;
     if (localX < 0 || localX > timelineActualWidth) return null;
-    
-    const hitFrame = Math.floor(localX / pixelsPerFrame);
-    
-    // Convert raw frame inside the sequence to block index
-    const seconds = Math.floor(hitFrame / sequence.fps);
-    const frameInsideSec = hitFrame % sequence.fps;
-    
-    let blockIndexRange = 0;
-    if (frameInsideSec >= GRID.BLOCKS_PER_SEC[3]) blockIndexRange = 3;
-    else if (frameInsideSec >= GRID.BLOCKS_PER_SEC[2]) blockIndexRange = 2;
-    else if (frameInsideSec >= GRID.BLOCKS_PER_SEC[1]) blockIndexRange = 1;
 
-    const cellColumn = Math.max(0, Math.min(numCells - 1, (seconds * 4) + blockIndexRange));
-    const startFrame = getStartFrameForCell(cellColumn);
+    const hitFrame = Math.floor(localX / pixelsPerFrame);
 
     // Y Math: find the exact layer under the cursor
     const localY = (e.clientY - rect.top) + container.scrollTop - GRID.ORIGIN_Y;
@@ -124,10 +135,23 @@ export function SequencerGrid() {
 
     const rowIndex = Math.floor(localY / GRID.ROW_HEIGHT);
     const layer = sequence.lights[rowIndex];
-
     if (!layer) return null;
 
-    return { layerId: layer.id, startFrame, rawFrameIndex: hitFrame, span: getFrameSpanForCell(cellColumn) };
+    // Use the layer's division to determine which cell was hit
+    const cached = divisionLayouts.get(layer.division);
+    if (!cached) return null;
+    const { layout, starts } = cached;
+
+    const seconds = Math.floor(hitFrame / sequence.fps);
+    const frameInsideSec = hitFrame % sequence.fps;
+    const cellInSec = getCellIndexForFrame(frameInsideSec, starts, layout);
+
+    const cellsPerSec = layout.length;
+    const numCells = cellsPerSec * sequence.durationSeconds;
+    const cellIdx = Math.max(0, Math.min(numCells - 1, seconds * cellsPerSec + cellInSec));
+
+    const { startFrame, span } = getCellGeometry(cellIdx, layer.division);
+    return { layerId: layer.id, startFrame, rawFrameIndex: hitFrame, span };
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -137,7 +161,7 @@ export function SequencerGrid() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     isDragging.current = true;
     setSelectedLayer(hit.layerId);
-    
+
     // Check if what we clicked on was ALREADY active (check full cell span)
     const layerObj = sequence.lights.find(l => l.id === hit.layerId);
     if (!layerObj) return;
@@ -160,7 +184,7 @@ export function SequencerGrid() {
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging.current) return;
-    
+
     const hit = getCellFromEvent(e);
     if (!hit) return;
 
@@ -187,12 +211,12 @@ export function SequencerGrid() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[#151515] relative overflow-hidden select-none">
-      
-      <div 
+
+      <div
         ref={containerRef}
         className="flex-1 overflow-auto custom-scrollbar relative"
       >
-        <div 
+        <div
            className="flex flex-col min-w-full pb-12 w-max"
            onPointerLeave={handlePointerUp}
            onPointerUp={handlePointerUp}
@@ -243,13 +267,15 @@ export function SequencerGrid() {
 
              <div className="flex-1 flex border-b flex-col border-black relative overflow-hidden bg-[#1a1a1a]">
                <div className="flex-1 relative flex items-end" style={{ width: timelineActualWidth, minWidth: timelineActualWidth }}>
-                 {Array.from({ length: numCells }).map((_, cellIdx) => {
-                   const startFrame = getStartFrameForCell(cellIdx);
+                 {/* Timeline header: always uses 4-beat layout for second/half markers */}
+                 {Array.from({ length: headerNumCells }).map((_, cellIdx) => {
+                   const { startFrame, span } = getCellGeometry(cellIdx, 4);
                    const isSecondBoundary = startFrame % sequence.fps === 0;
-                   const isHalfBoundary = startFrame % sequence.fps === 14; // Start of block 3 is halfway for 30fps
+                   const halfFrame = headerLayout.starts[2]; // ~halfway through the second
+                   const isHalfBoundary = (startFrame % sequence.fps) === halfFrame;
 
                    const cellLeft = startFrame * pixelsPerFrame;
-                   const targetWidth = getFrameSpanForCell(cellIdx) * pixelsPerFrame;
+                   const targetWidth = span * pixelsPerFrame;
 
                    return (
                      <div key={cellIdx} className="absolute bottom-0 top-0" style={{ left: cellLeft, width: targetWidth }}>
@@ -260,7 +286,7 @@ export function SequencerGrid() {
                         )}
                         {isHalfBoundary && (
                            <div className="absolute left-0 bottom-0 h-2 w-[1px] bg-white/20 flex items-end pl-1 pb-[1px] z-10 pointer-events-none">
-                             <span className="text-[8px] text-white/30 font-bold leading-none">15f</span>
+                             <span className="text-[8px] text-white/30 font-bold leading-none">½</span>
                            </div>
                         )}
                      </div>
@@ -271,12 +297,12 @@ export function SequencerGrid() {
           </div>
 
           <div className="flex flex-col relative w-full">
-            <div 
+            <div
               ref={playheadRef}
               className="absolute top-0 bottom-0 w-[2px] bg-[#e89f41] z-20 shadow-[0_0_10px_rgba(232,159,65,0.8)] pointer-events-none"
-              style={{ 
+              style={{
                 left: GRID.ORIGIN_X - 2,
-                display: totalFrames > 0 && sequence.lights.length > 0 ? "block" : "none" 
+                display: totalFrames > 0 && sequence.lights.length > 0 ? "block" : "none"
               }}
             />
 
@@ -286,6 +312,13 @@ export function SequencerGrid() {
               const isSelected = selectedLayerId === light.id;
               const isMultiSelected = selectedLayerIds.includes(light.id);
               const layerGroup = groups.find(g => g.layerIds.includes(light.id));
+
+              // Per-layer cell layout from division
+              const cached = divisionLayouts.get(light.division);
+              const layerLayout = cached?.layout ?? [7, 7, 7, 9];
+              const layerStarts = cached?.starts ?? [0, 7, 14, 21];
+              const cellsPerSec = layerLayout.length;
+              const layerNumCells = cellsPerSec * sequence.durationSeconds;
 
               return (
                 <div
@@ -312,22 +345,23 @@ export function SequencerGrid() {
                     <LayerRow light={light} isSelected={isSelected} rowHeight={GRID.ROW_HEIGHT} onToggleMute={() => toggleMute(light.id)} />
                   </div>
 
-                  <div 
+                  <div
                     className={`flex-1 relative cursor-pointer py-1.5 ${isSelected ? "bg-white/[0.02]" : ""}`}
                     style={{ width: timelineActualWidth, minWidth: timelineActualWidth }}
                     // Events are now handled at the parent level to allow cross-track dragging
                   >
-                     {Array.from({ length: numCells }).map((_, cellIdx) => {
-                       const startFrame = getStartFrameForCell(cellIdx);
-                       const span = getFrameSpanForCell(cellIdx);
+                     {Array.from({ length: layerNumCells }).map((_, cellIdx) => {
+                       const sec = Math.floor(cellIdx / cellsPerSec);
+                       const cellInSec = cellIdx % cellsPerSec;
+                       const startFrame = sec * sequence.fps + layerStarts[cellInSec];
+                       const span = layerLayout[cellInSec];
                        const isSecondBoundary = startFrame % sequence.fps === 0;
-                       const isHalfBoundary = startFrame % sequence.fps === 14;
-                       
+
                        let isActive = false;
                        for (let f = startFrame; f < Math.min(startFrame + span, totalFrames); f++) {
                          if (light.pattern[f]) { isActive = true; break; }
                        }
-                       
+
                        const cellLeft = startFrame * pixelsPerFrame;
                        const targetWidth = Math.max(1, (span * pixelsPerFrame) - GRID.CELL_GAP);
 
@@ -335,7 +369,7 @@ export function SequencerGrid() {
                          <div
                            key={cellIdx}
                            className="absolute"
-                           style={{ 
+                           style={{
                              left: cellLeft,
                              width: targetWidth,
                              top: GRID.CELL_Y_PADDING,
@@ -346,12 +380,7 @@ export function SequencerGrid() {
                            {isSecondBoundary && cellIdx !== 0 && (
                                <div className="absolute -left-[2px] w-[2px] h-[160%] bg-white/20 top-1/2 -translate-y-1/2 pointer-events-none z-0" />
                            )}
-                           
-                           {/* Half-Second Divider Marker */}
-                           {isHalfBoundary && (
-                               <div className="absolute -left-[1px] w-[1px] h-[120%] bg-white/5 top-1/2 -translate-y-1/2 pointer-events-none z-0" />
-                           )}
-                           
+
                            {/* Active Cell Object */}
                            <div
                              className={`w-full h-full rounded-sm transition-all duration-75 overflow-hidden relative z-10 ${
@@ -364,17 +393,17 @@ export function SequencerGrid() {
                            >
                               {isActive && !light.muted && (
                                  <svg
-                                   className="absolute inset-[3px] pointer-events-none opacity-60 z-20" 
-                                   preserveAspectRatio="none" 
+                                   className="absolute inset-[3px] pointer-events-none opacity-60 z-20"
+                                   preserveAspectRatio="none"
                                    viewBox="0 0 100 100"
                                    style={{ width: 'calc(100% - 6px)', height: 'calc(100% - 6px)' }}
                                  >
-                                   <path 
-                                     d={`M 0 100 L ${Math.min(100, (light.attack / span) * 100)} 0 L ${Math.min(100, ((light.attack + Math.max(0, span - light.attack - light.decay)) / span) * 100)} 0 L 100 100`} 
-                                     fill="none" 
-                                     stroke="white" 
-                                     strokeWidth="2" 
-                                     vectorEffect="non-scaling-stroke" 
+                                   <path
+                                     d={`M 0 100 L ${Math.min(100, (light.attack / span) * 100)} 0 L ${Math.min(100, ((light.attack + Math.max(0, span - light.attack - light.decay)) / span) * 100)} 0 L 100 100`}
+                                     fill="none"
+                                     stroke="white"
+                                     strokeWidth="2"
+                                     vectorEffect="non-scaling-stroke"
                                    />
                                  </svg>
                               )}

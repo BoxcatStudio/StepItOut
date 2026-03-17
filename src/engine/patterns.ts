@@ -1,8 +1,10 @@
 import type { GeneratorConfig, LightLayer } from "../types";
+import { getCellLayout, getCellStartFrames, getCellIndexForFrame } from "./frameMath";
 
 export function generateGridPatterns(
   config: GeneratorConfig,
-  layers: LightLayer[]
+  layers: LightLayer[],
+  fps: number = 30
 ): Record<string, number[]> {
   const numLayers = layers.length;
   const result: Record<string, number[]> = {};
@@ -23,13 +25,38 @@ export function generateGridPatterns(
 
   const maxSteps = Math.max(...activeLayers.map(l => l.pattern.length));
 
-  // Helper to set a frame on an active layer by its index within activeLayers
+  // Precompute cell layouts per unique division
+  const layoutCache = new Map<number, { layout: number[]; starts: number[] }>();
+  for (const layer of activeLayers) {
+    if (!layoutCache.has(layer.division)) {
+      const layout = getCellLayout(fps, layer.division);
+      const starts = getCellStartFrames(layout);
+      layoutCache.set(layer.division, { layout, starts });
+    }
+  }
+
+  // Helper to fill the entire cell span that a frame falls into
+  const fillCellAtFrame = (layerId: string, division: number, frame: number, patLen: number, value: number = 1) => {
+    const cached = layoutCache.get(division);
+    if (!cached) { result[layerId][frame] = value; return; }
+    const { layout, starts } = cached;
+    const sec = Math.floor(frame / fps);
+    const frameInSec = frame % fps;
+    const cellInSec = getCellIndexForFrame(frameInSec, starts, layout);
+    const cellStart = sec * fps + starts[cellInSec];
+    const cellSpan = layout[cellInSec];
+    for (let f = cellStart; f < Math.min(cellStart + cellSpan, patLen); f++) {
+      result[layerId][f] = value;
+    }
+  };
+
+  // Helper to set a step on an active layer — fills the full cell span
   const setStep = (aIndex: number, step: number, value: number = 1) => {
     if (aIndex >= 0 && aIndex < numActive) {
       const layer = activeLayers[aIndex];
       const mappedStep = Math.floor((step / maxSteps) * layer.pattern.length);
       if (mappedStep >= 0 && mappedStep < layer.pattern.length) {
-        result[layer.id][mappedStep] = value;
+        fillCellAtFrame(layer.id, layer.division, mappedStep, layer.pattern.length, value);
       }
     }
   };
@@ -40,11 +67,25 @@ export function generateGridPatterns(
       const probability = Math.pow(density / 100, 2);
 
       activeLayers.forEach((l, lIndex) => {
-        for (let i = 0; i < l.pattern.length; i++) {
-          const prng = Math.sin(lIndex * 13.37 + i * 9.11 + variation) * 10000;
-          const rand = prng - Math.floor(prng);
-          if (rand < probability) {
-            result[l.id][i] = 1;
+        // Iterate per cell, not per frame, so each cell is either fully on or off
+        const cached = layoutCache.get(l.division);
+        if (!cached) return;
+        const { layout, starts } = cached;
+        const cellsPerSec = layout.length;
+        const durationSec = Math.ceil(l.pattern.length / fps);
+        for (let sec = 0; sec < durationSec; sec++) {
+          for (let c = 0; c < cellsPerSec; c++) {
+            const cellStart = sec * fps + starts[c];
+            if (cellStart >= l.pattern.length) break;
+            const cellSpan = layout[c];
+            const cellIdx = sec * cellsPerSec + c;
+            const prng = Math.sin(lIndex * 13.37 + cellIdx * 9.11 + variation) * 10000;
+            const rand = prng - Math.floor(prng);
+            if (rand < probability) {
+              for (let f = cellStart; f < Math.min(cellStart + cellSpan, l.pattern.length); f++) {
+                result[l.id][f] = 1;
+              }
+            }
           }
         }
       });
@@ -262,19 +303,34 @@ export function generateGridPatterns(
       const { amount, direction } = config.config;
       const probMax = amount / 100;
 
-      for (let step = 0; step < maxSteps; step++) {
-        const normX = step / (maxSteps - 1 || 1);
-        const rampProb = direction === "in" ? normX * probMax : (1 - normX) * probMax;
+      // Work at cell level for each layer to ensure full cell spans
+      activeLayers.forEach((layer, lIndex) => {
+        const cached = layoutCache.get(layer.division);
+        if (!cached) return;
+        const { layout, starts } = cached;
+        const cellsPerSec = layout.length;
+        const durationSec = Math.ceil(layer.pattern.length / fps);
+        const totalCells = cellsPerSec * durationSec;
 
-        activeLayers.forEach((_, lIndex) => {
-          const threshold = (lIndex / numActive) * 0.5 + 0.25;
-          const prng = Math.sin(lIndex * 0.5 + step * 0.1) * 10;
+        for (let sec = 0; sec < durationSec; sec++) {
+          for (let c = 0; c < cellsPerSec; c++) {
+            const cellStart = sec * fps + starts[c];
+            if (cellStart >= layer.pattern.length) break;
+            const cellSpan = layout[c];
+            const cellIdx = sec * cellsPerSec + c;
+            const normX = cellIdx / (totalCells - 1 || 1);
+            const rampProb = direction === "in" ? normX * probMax : (1 - normX) * probMax;
+            const threshold = (lIndex / numActive) * 0.5 + 0.25;
+            const prng = Math.sin(lIndex * 0.5 + cellIdx * 0.1) * 10;
 
-          if ((prng - Math.floor(prng)) * threshold < rampProb) {
-            setStep(lIndex, step, 1);
+            if ((prng - Math.floor(prng)) * threshold < rampProb) {
+              for (let f = cellStart; f < Math.min(cellStart + cellSpan, layer.pattern.length); f++) {
+                result[layer.id][f] = 1;
+              }
+            }
           }
-        });
-      }
+        }
+      });
       break;
     }
   }

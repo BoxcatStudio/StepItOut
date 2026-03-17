@@ -7,8 +7,35 @@ import { getTotalFrames } from "../engine/frameMath";
 import { startPlayback, stopPlayback } from "../engine/playback";
 import { save, open as openDialog } from "@tauri-apps/plugin-dialog";
 
+import type { Division } from "../types";
+import { DIVISIONS } from "../types";
+
 function getNameFromPath(path: string): string {
   return path.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "Light";
+}
+
+/** Map any division value (including old format) to the nearest valid Division */
+function migrateDivision(raw: unknown): Division {
+  if (typeof raw === "string") {
+    const num = parseInt(raw, 10);
+    if (!isNaN(num)) return nearestDivision(num);
+    return 4; // default
+  }
+  if (typeof raw === "number") return nearestDivision(raw);
+  return 4;
+}
+
+function nearestDivision(n: number): Division {
+  // If it's already a valid division, return it
+  if ((DIVISIONS as readonly number[]).includes(n)) return n as Division;
+  // Find nearest valid division
+  let best: Division = 4;
+  let bestDist = Infinity;
+  for (const d of DIVISIONS) {
+    const dist = Math.abs(d - n);
+    if (dist < bestDist) { bestDist = dist; best = d; }
+  }
+  return best;
 }
 
 function TimeDisplay() {
@@ -92,7 +119,7 @@ export function TopBar() {
             Object.entries(bank.layers).forEach(([k, v]: [string, any]) => {
               mappedLayers[k] = {
                 pattern: v.pattern,
-                division: typeof v.division === 'string' ? 5 : v.division as import("../types").Division,
+                division: migrateDivision(v.division),
                 attack: v.attack !== undefined && v.attack !== null ? v.attack : 2,
                 decay: v.decay !== undefined && v.decay !== null ? v.decay : 6,
               };
@@ -112,7 +139,7 @@ export function TopBar() {
               id: l.id,
               name: l.name,
               filePath: l.file_path,
-              division: typeof l.division === 'string' ? 5 : l.division as import("../types").Division,
+              division: migrateDivision(l.division),
               pattern: l.pattern,
               attack: l.attack,
               decay: l.decay,
