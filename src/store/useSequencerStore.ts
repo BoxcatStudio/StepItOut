@@ -7,7 +7,7 @@ import type {
   LayerGroup,
 } from "../types";
 import { generateGridPatterns } from "../engine/patterns";
-import { getTotalFrames } from "../engine/frameMath";
+import { getTotalFrames, requantizePattern } from "../engine/frameMath";
 
 export function hasNonZeroPatterns(lights: LightLayer[]): boolean {
   return lights.some(l => l.pattern.some(v => v !== 0));
@@ -134,7 +134,9 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
         sequence: {
           ...state.sequence,
           lights: state.sequence.lights.map((l) =>
-            l.id === layerId ? { ...l, division } : l
+            l.id === layerId
+              ? { ...l, division, pattern: requantizePattern(l.pattern, state.sequence.fps, division) }
+              : l
           ),
         },
       })),
@@ -147,7 +149,9 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
           sequence: {
             ...state.sequence,
             lights: state.sequence.lights.map((l) =>
-              group.layerIds.includes(l.id) ? { ...l, division } : l
+              group.layerIds.includes(l.id)
+                ? { ...l, division, pattern: requantizePattern(l.pattern, state.sequence.fps, division) }
+                : l
             ),
           },
         };
@@ -337,7 +341,13 @@ export const useSequencerStore = create<SequencerState & SequencerActions>(
       set((state) => ({
         sequence: {
           ...state.sequence,
-          lights: state.sequence.lights.map((l) => ({ ...l, [key]: value } as LightLayer)),
+          lights: state.sequence.lights.map((l) => {
+            const updated = { ...l, [key]: value } as LightLayer;
+            if (key === "division") {
+              updated.pattern = requantizePattern(l.pattern, state.sequence.fps, value as number);
+            }
+            return updated;
+          }),
         },
       })),
 

@@ -60,3 +60,37 @@ export function getCellIndexForFrame(frameInSec: number, starts: number[], _layo
   }
   return 0;
 }
+
+/**
+ * Re-quantize a pattern to snap to the new division's cell grid.
+ * For each cell in the new layout: if ANY frame was active, fill entire cell; otherwise clear it.
+ */
+export function requantizePattern(pattern: number[], fps: number, newDivision: number): number[] {
+  const layout = getCellLayout(fps, newDivision);
+  const starts = getCellStartFrames(layout);
+  const result = new Array(pattern.length).fill(0);
+  const durationSec = Math.ceil(pattern.length / fps);
+
+  for (let sec = 0; sec < durationSec; sec++) {
+    for (let c = 0; c < layout.length; c++) {
+      const cellStart = sec * fps + starts[c];
+      const cellSpan = layout[c];
+      const cellEnd = Math.min(cellStart + cellSpan, pattern.length);
+      if (cellStart >= pattern.length) break;
+
+      // Check if ANY frame in this cell was active
+      let hasActive = false;
+      for (let f = cellStart; f < cellEnd; f++) {
+        if (pattern[f] !== 0) { hasActive = true; break; }
+      }
+
+      // Fill entire cell or leave empty
+      if (hasActive) {
+        for (let f = cellStart; f < cellEnd; f++) {
+          result[f] = 1;
+        }
+      }
+    }
+  }
+  return result;
+}
