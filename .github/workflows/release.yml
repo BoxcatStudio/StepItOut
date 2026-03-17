@@ -35,12 +35,10 @@ jobs:
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0.5
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          owner: BoxcatStudio
-          repo: StepItOut-releases
           tagName: v__VERSION__
           releaseName: 'STEP It Out v__VERSION__'
           releaseBody: 'See the assets below to download and install.'
